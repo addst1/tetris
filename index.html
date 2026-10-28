@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>RETRO BLOCKS</title>
+<meta name="description" content="아케이드 감성의 레트로 블록 퍼즐 - 터치 & 스와이프 PWA">
+<meta name="theme-color" content="#05051f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Retro Blocks">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <div id="wrap">
+
+    <!-- 상단: NEXT / 아치 로고 + LINES LEFT / ROUND -->
+    <div id="hdr">
+      <div id="pNext" class="panel">
+        <div class="lbl">NEXT</div>
+        <canvas id="next" width="48" height="36"></canvas>
+      </div>
+      <div id="pArch" class="arch">
+        <i class="dome dl"></i><i class="dome dr"></i>
+        <div class="logo">RETRO BLOCKS</div>
+        <div class="ll"><span>LINES LEFT</span><b id="left">10</b></div>
+      </div>
+      <div id="pRound" class="panel">
+        <div class="lbl">ROUND</div>
+        <div id="round" class="val big">01</div>
+      </div>
+    </div>
+
+    <!-- 중앙: 돌기둥 + 플레이필드 -->
+    <div id="mid">
+      <div class="pillar pl"></div>
+      <div id="boardWrap">
+        <canvas id="board" width="240" height="480"></canvas>
+        <canvas id="fx" width="240" height="480"></canvas>
+        <div id="toast"></div>
+      </div>
+      <div class="pillar pr"></div>
+    </div>
+
+    <!-- 하단: 점수 / STATS / 버튼 -->
+    <div id="ftr">
+      <div id="pScore" class="panel">
+        <div class="row2"><span>SCORE</span><b id="score">0000000</b></div>
+        <div class="row2"><span>HIGH</span><b id="high">0000000</b></div>
+        <div class="row2"><span>LINES</span><b id="lines">000</b></div>
+      </div>
+      <div id="pStats" class="panel">
+        <div class="lbl">STATS</div>
+        <div id="bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div id="pBtns">
+        <button id="btnPause" data-act="pause">PAUSE</button>
+        <button id="btnSnd" data-act="snd">SND ON</button>
+        <button id="btnMus" data-act="mus+">MUS A</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 전체 화면 오버레이들 -->
+  <div id="screens">
+    <!-- TITLE -->
+    <section id="sTitle" class="screen on">
+      <canvas id="attract" width="300" height="600"></canvas>
+      <div class="logo-big"><span>RETRO</span><span>BLOCKS</span></div>
+      <div class="sub">ARCADE EDITION</div>
+      <div class="menu">
+        <button class="btn big blink" data-act="start">&#9654; START</button>
+        <div class="row"><button class="btn sm" data-act="lvl-">&#9664;</button><span id="tLevel">ROUND 1</span><button class="btn sm" data-act="lvl+">&#9654;</button></div>
+        <div class="row"><button class="btn sm" data-act="mus-">&#9664;</button><span id="tMusic">MUSIC A</span><button class="btn sm" data-act="mus+">&#9654;</button></div>
+        <button class="btn" data-act="records">RECORDS</button>
+        <button class="btn" data-act="help">HOW TO PLAY</button>
+        <button class="btn" data-act="fs" id="btnFs" hidden>FULLSCREEN</button>
+        <button class="btn" data-act="install" id="btnInstall" hidden>INSTALL APP</button>
+      </div>
+      <div class="foot">HIGH SCORE <span id="tTop">0000000</span></div>
+    </section>
+
+    <!-- HELP -->
+    <section id="sHelp" class="screen">
+      <h2>HOW TO PLAY</h2>
+      <ul class="help">
+        <li><b>탭</b> 블록 회전</li>
+        <li><b>좌우 스와이프</b> 손가락 따라 이동</li>
+        <li><b>아래로 드래그</b> 천천히 내리기</li>
+        <li><b>아래로 빠르게 휙</b> 한 번에 낙하</li>
+        <li><b>4줄 동시 제거</b> TETRIS 보너스</li>
+        <li><b>LINES LEFT 0</b> ROUND CLEAR 이벤트</li>
+        <li><b>5라운드마다</b> 로켓 발사 보너스</li>
+      </ul>
+      <p class="kb">PC: ←→ 이동 / ↑ 회전 / ↓ 내리기 / Space 낙하 / P 일시정지<br>홈 화면에 추가하면 전체화면 앱으로 실행됩니다</p>
+      <button class="btn" data-act="back">BACK</button>
+    </section>
+
+    <!-- RECORDS -->
+    <section id="sRecords" class="screen" data-from="title">
+      <h2>HIGH SCORES</h2>
+      <div id="recList"></div>
+      <div id="recStats"></div>
+      <div class="btns title-only">
+        <button class="btn" data-act="back">BACK</button>
+        <button class="btn" data-act="reset" id="btnReset">RESET</button>
+      </div>
+      <div class="btns game-only">
+        <button class="btn" data-act="start">RETRY</button>
+        <button class="btn" data-act="title">TITLE</button>
+      </div>
+    </section>
+
+    <!-- NAME ENTRY -->
+    <section id="sEntry" class="screen">
+      <h2 class="blink">NEW HIGH SCORE!</h2>
+      <div id="eRank">RANK 1</div>
+      <div id="eScore" class="gold">0000000</div>
+      <div class="hint">ENTER YOUR NAME</div>
+      <div class="letters">
+        <div class="lt"><button class="btn sm" data-act="up" data-i="0">&#9650;</button><span id="L0">A</span><button class="btn sm" data-act="dn" data-i="0">&#9660;</button></div>
+        <div class="lt"><button class="btn sm" data-act="up" data-i="1">&#9650;</button><span id="L1">A</span><button class="btn sm" data-act="dn" data-i="1">&#9660;</button></div>
+        <div class="lt"><button class="btn sm" data-act="up" data-i="2">&#9650;</button><span id="L2">A</span><button class="btn sm" data-act="dn" data-i="2">&#9660;</button></div>
+      </div>
+      <button class="btn big" data-act="entryok">OK</button>
+    </section>
+
+    <!-- GAME OVER -->
+    <section id="sOver" class="screen">
+      <h2>GAME OVER</h2>
+      <div class="hint">SCORE</div>
+      <div id="oScore" class="gold huge">0000000</div>
+      <div id="oInfo" class="hint">ROUND 01 LINES 000</div>
+      <div class="menu">
+        <button class="btn big blink" data-act="start">&#9654; RETRY</button>
+        <button class="btn" data-act="recordsGame">RECORDS</button>
+        <button class="btn" data-act="title">TITLE</button>
+      </div>
+    </section>
+
+    <!-- PAUSE -->
+    <section id="sPause" class="screen">
+      <h2 class="blink">PAUSED</h2>
+      <div class="menu">
+        <button class="btn big" data-act="resume">&#9654; RESUME</button>
+        <button class="btn" data-act="title">QUIT</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="crt"></div>
+</div>
+<script src="game.js"></script>
+</body>
+</html>
