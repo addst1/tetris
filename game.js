@@ -28,7 +28,7 @@ const SHAPES = {
 const GRAVITY = [48,43,38,33,28,23,18,13,8,6,5,5,5,4,4,4,3,3,3,2,2,2,2,2,2,2,2,2,2,1];
 const LINE_SCORE = [0, 40, 100, 300, 1200];
 const KEY = 'retroblocks.v1';
-const VERSION = '1.6.0', BUILD = '2026-10-29';   // 배포할 때 sw.js 의 CACHE 이름도 같이 올리세요
+const VERSION = '1.7.0', BUILD = '2026-10-29';   // 배포할 때 sw.js 의 CACHE 이름도 같이 올리세요
 const MAX_RESETS = 15;      // 바닥에 닿은 뒤 이동/회전으로 고정 타이머를 되돌릴 수 있는 최대 횟수
 
 const $ = (id) => document.getElementById(id);
@@ -301,9 +301,7 @@ function fit() {
   let f, cell, side = 0;
   if (!land) {
     f = Math.max(10, Math.min(W / 26, H / 50, 18));
-    side = Math.round(f * 5.8);
-    cell = Math.min((H - f * 10) / 20, (W - f * 3 - side) / 10);
-    root.style.setProperty('--side', side + 'px');
+    cell = Math.min((H - f * 13.4) / 20, (W - f * 1.8) / 10);
   } else {
     f = Math.max(10, Math.min(W / 58, H / 26));
     cell = Math.min((H - f * 1.6) / 20, (W * 0.46) / 10);
@@ -317,7 +315,7 @@ function fit() {
   wrap.classList.toggle('land', land);
 
   bcv.width = fcv.width = cs * COLS; bcv.height = fcv.height = cs * ROWS;
-  ncs = land ? Math.floor(cs * 0.95) : Math.max(6, Math.floor(((side - f * 1.5) / 4) * dpr));
+  ncs = land ? Math.floor(cs * 0.95) : Math.max(6, Math.floor(f * 1.05 * dpr));
   ncv.width = ncs * 4; ncv.height = ncs * 3;
   ncv.style.width = (ncs * 4 / dpr) + 'px'; ncv.style.height = (ncs * 3 / dpr) + 'px';
 
@@ -401,7 +399,7 @@ const fmtN = (n) => Number(n).toLocaleString('en-US');
 function hud() {
   $('score').textContent = fmtN(G.score);
   $('round').textContent = G.level + 1;
-  $('left').textContent = Math.max(0, G.nextLevelAt - G.lines);
+  $('left').textContent = $('left2').textContent = Math.max(0, G.nextLevelAt - G.lines);
 }
 function labels() {
   $('tLevel').textContent = 'LEVEL ' + (store.settings.startLevel + 1);
@@ -456,6 +454,41 @@ function startGame() {
   wakeOn();
 }
 
+/* ---------- 이어하기 (최소화/강제종료 후에도 복원) ---------- */
+const SAVE_KEY = KEY + '.game';
+function saveGame() {
+  try {
+    const live = ['playing', 'are', 'paused'].includes(G.state);
+    if (!live) return;
+    if (G.state === 'paused' && !['playing', 'are'].includes(G.pausedFrom)) return;
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      v: 1, grid: G.grid, piece: G.piece ? { t: G.piece.t, m: G.piece.m, x: G.piece.x, y: G.piece.y } : null,
+      next: { t: G.next.t, m: G.next.m }, prev: G.prev, score: G.score, lines: G.lines, level: G.level, startLevel: G.startLevel,
+      nextLevelAt: G.nextLevelAt, pieceCount: G.pieceCount, combo: G.combo,
+    }));
+  } catch (e) { /* ignore */ }
+}
+function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } }
+function readSave() {
+  try {
+    const d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+    if (!d || d.v !== 1 || !Array.isArray(d.grid) || d.grid.length !== ROWS || !d.next) return null;
+    return d;
+  } catch (e) { return null; }
+}
+function continueGame() {
+  const d = readSave(); if (!d) { startGame(); return; }
+  Snd.unlock();
+  Object.assign(G, { grid: d.grid, piece: d.piece, next: d.next, prev: d.prev, score: d.score, lines: d.lines, level: d.level,
+    startLevel: d.startLevel, nextLevelAt: d.nextLevelAt, pieceCount: d.pieceCount, combo: d.combo || 0, extra: 0, booms: [],
+    flash: 0, event: null, lastEntry: null, clearRows: [], gravCount: 0, ground: 0, resets: 0, dropFx: null });
+  G.lowY = G.piece ? G.piece.y : 0;
+  fctx.setTransform(1, 0, 0, 1, 0, 0); fctx.clearRect(0, 0, fcv.width, fcv.height);
+  drawNext(); hud(); labels();
+  Snd.setTempoLevel(G.level); Snd.start(); wakeOn();
+  G.state = G.piece ? 'playing' : 'are'; G.timer = 30;
+  pauseGame();                       // 복귀하면 일시정지 상태로 시작 -> RESUME
+}
 function spawn() {
   const cur = G.next; G.next = makePiece(); drawNext();
   const t = cur.t, m = cur.m;
@@ -465,6 +498,7 @@ function spawn() {
   G.gravCount = 0; G.ground = 0; G.resets = 0; G.lowY = G.piece.y;
   if (collide(G.piece.m, G.piece.x, G.piece.y)) { die(); return; }
   G.state = 'playing';
+  saveGame();
 }
 
 function tryMove(dx, dy) {
@@ -502,7 +536,13 @@ function softStep() {          // 바닥에서는 고정하지 않음 (고정은
 }
 function hardDrop() {
   if (G.state !== 'playing') return;
+  const p = G.piece, cols = [];
+  for (let x = 0; x < p.m[0].length; x++) {
+    let top = -1; for (let y = 0; y < p.m.length; y++) if (p.m[y][x]) { top = y; break; }
+    if (top >= 0) cols.push({ x: p.x + x, y0: Math.max(0, p.y + top), top, col: PIECE_COLORS[p.t] });
+  }
   let n = 0; while (tryMove(0, 1)) n++;
+  if (n > 1) { cols.forEach((q) => { q.y1 = G.piece.y + q.top; }); G.dropFx = { start: G.frame, cols }; }
   G.score += n * 2; hud(); shake(); lockPiece();
 }
 
@@ -659,6 +699,7 @@ function endEvent() {
 
 /* ---------- 게임 오버 ---------- */
 function die() {
+  clearSave();
   G.state = 'dying'; G.dieT = 0; G.piece = null;
   Snd.stop(); SFX.over(); vibrate(200);
 }
@@ -727,7 +768,7 @@ function resumeGame() {
   show(null); G.state = G.pausedFrom; Snd.resume();
 }
 function toTitle() {
-  Snd.stop(); wakeOff(); hideToast();
+  Snd.stop(); wakeOff(); hideToast(); clearSave(); refreshCont();
   G.state = 'title'; G.event = null; G.flash = 0; G.piece = null; G.grid = emptyGrid(); G.booms = [];
   $('boardWrap').classList.remove('danger');
   fctx.setTransform(1, 0, 0, 1, 0, 0); fctx.clearRect(0, 0, fcv.width, fcv.height);
@@ -807,15 +848,15 @@ function drawBoard() {
       bctx.globalAlpha = 1;
     }
   }
-  if (p && G.state === 'playing') {            // 시안의 떨어지는 궤적
-    const col = PIECE_COLORS[p.t];
-    for (let x = 0; x < p.m[0].length; x++) {
-      let top = -1; for (let y = 0; y < p.m.length; y++) if (p.m[y][x]) { top = y; break; }
-      if (top < 0) continue;
-      const yt = (p.y + top) * cs, hh = Math.min(yt, cs * 7); if (hh <= 0) continue;
-      const gr = bctx.createLinearGradient(0, yt, 0, yt - hh); gr.addColorStop(0, hexA(col, 0.3)); gr.addColorStop(1, hexA(col, 0));
-      bctx.fillStyle = gr; bctx.fillRect((p.x + x) * cs + cs * 0.12, yt - hh, cs * 0.76, hh);
-    }
+  const df = G.dropFx;                         // 하드드롭 때만 보이는 낙하 궤적
+  if (df) {
+    const life = (G.frame - df.start) / 14;
+    if (life >= 1) G.dropFx = null;
+    else df.cols.forEach((q) => {
+      const y1 = q.y1 * cs, y0 = q.y0 * cs; if (y1 - y0 <= 0) return;
+      const gr = bctx.createLinearGradient(0, y1, 0, y0); gr.addColorStop(0, hexA(q.col, 0.5 * (1 - life))); gr.addColorStop(1, hexA(q.col, 0));
+      bctx.fillStyle = gr; bctx.fillRect(q.x * cs + cs * 0.1, y0, cs * 0.8, y1 - y0);
+    });
   }
   if (p && G.state === 'playing' && G.ground > 0) bctx.globalAlpha = 1 - 0.4 * Math.min(1, G.ground / lockDelay());   // 고정이 다가오면 흐려짐
   if (p) p.m.forEach((row, y) => row.forEach((v, x) => {
@@ -1043,7 +1084,8 @@ const fsEl = () => document.documentElement;
 const canFs = () => !!(fsEl().requestFullscreen || fsEl().webkitRequestFullscreen);
 let deferredInstall = null, resetArmed = 0;
 const ACTIONS = {
-  start: () => startGame(),
+  start: () => { clearSave(); startGame(); },
+  cont: () => continueGame(),
   title: () => toTitle(),
   help: () => show('help'),
   back: () => show('title'),
@@ -1092,12 +1134,13 @@ addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredIns
 let fitTimer = null;
 const refit = () => { fit(); clearTimeout(fitTimer); fitTimer = setTimeout(fit, 250); };   // 회전 직후 크기 재측정
 addEventListener('resize', refit);
+addEventListener('pagehide', saveGame);
 addEventListener('orientationchange', refit);
 document.addEventListener('fullscreenchange', refit);
 if (window.visualViewport) window.visualViewport.addEventListener('resize', refit);
 if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => fit()).observe($('wrap'));
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) pauseGame(); else if (['playing', 'clearing', 'are', 'event'].includes(G.state)) wakeOn();
+  if (document.hidden) { pauseGame(); saveGame(); } else if (['playing', 'clearing', 'are', 'event'].includes(G.state)) wakeOn();
 });
 
 /* ---------- 시작 ---------- */
@@ -1105,6 +1148,8 @@ Snd.setSfx(store.settings.sfx);
 G.grid = emptyGrid(); G.next = makePiece();
 $('btnFs').hidden = !(canFs() && !isStandalone());
 $('ver').textContent = 'v' + VERSION + '  ·  ' + BUILD;
+function refreshCont() { const has = !!readSave(); $('btnCont').hidden = !has; $('btnPlay').classList.toggle('blink', !has); $('btnPlay').classList.toggle('sm2', has); }
+refreshCont();
 fit(); labels(); hud(); updateBars();
 requestAnimationFrame(frame);
 

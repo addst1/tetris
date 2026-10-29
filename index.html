@@ -28,7 +28,14 @@
       <div id="pScore">
         <div class="sline y"><span>SCORE:</span> <b id="score">0</b></div>
         <div class="sline c"><span>LEVEL:</span> <b id="round">1</b></div>
+        <div class="sline l"><span>LEFT:</span> <b id="left2">10</b></div>
       </div>
+      <!-- 오른쪽: NEXT -->
+      <aside id="side">
+        <div class="nlbl">NEXT</div>
+        <div id="pNext"><canvas id="next" width="48" height="36"></canvas></div>
+        <div class="left"><span>LEFT</span><b id="left">10</b></div>
+      </aside>
     </header>
     <div id="rule"></div>
 
@@ -39,12 +46,7 @@
       <div id="toast"></div>
     </div>
 
-    <!-- 오른쪽: NEXT -->
-    <aside id="side">
-      <div class="nlbl">NEXT</div>
-      <div id="pNext"><canvas id="next" width="48" height="36"></canvas></div>
-      <div class="left"><span>LEFT</span><b id="left">10</b></div>
-    </aside>
+    
 
     <!-- 하단 아이콘 버튼 -->
     <footer id="pBtns">
@@ -63,7 +65,8 @@
         <b class="r2"><i>B</i><i>L</i><i>O</i><i>C</i><i>K</i><i>S</i></b>
       </div>
       <div class="menu">
-        <button class="btn big blink" data-act="start">PLAY &#9654;</button>
+        <button class="btn big" data-act="cont" id="btnCont" hidden>CONTINUE &#9654;</button>
+        <button class="btn big blink" data-act="start" id="btnPlay">PLAY &#9654;</button>
         <div class="row"><button class="btn sm" data-act="lvl-">&#9664;</button><span id="tLevel">LEVEL 1</span><button class="btn sm" data-act="lvl+">&#9654;</button></div>
         <div class="row2b">
           <button class="btn xs" data-act="ghost" id="tGhost">GHOST ON</button>
