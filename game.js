@@ -28,6 +28,8 @@ const SHAPES = {
 const GRAVITY = [48,43,38,33,28,23,18,13,8,6,5,5,5,4,4,4,3,3,3,2,2,2,2,2,2,2,2,2,2,1];
 const LINE_SCORE = [0, 40, 100, 300, 1200];
 const KEY = 'retroblocks.v1';
+const VERSION = '1.3.0', BUILD = '2026-10-29';   // 배포할 때 sw.js 의 CACHE 이름도 같이 올리세요
+const MAX_RESETS = 15;      // 바닥에 닿은 뒤 이동/회전으로 고정 타이머를 되돌릴 수 있는 최대 횟수
 
 const $ = (id) => document.getElementById(id);
 const rnd = (n) => Math.floor(Math.random() * n);
@@ -37,7 +39,7 @@ const pad = (n, l) => String(Math.min(Math.max(0, Math.floor(n)), Math.pow(10, l
 const DEFAULTS = {
   scores: [],
   stats: { games: 0, lines: 0, tetrises: 0, bestLevel: 0 },
-  settings: { startLevel: 0, music: 'A', sfx: true, name: 'AAA' },
+  settings: { startLevel: 0, music: 'A', sfx: true, name: 'AAA', ghost: true, tap: 'split' },
 };
 function loadStore() {
   try {
@@ -176,11 +178,15 @@ const Snd = (() => {
     move() { tone(260, 0.03, { v: 0.04 }); },
     rotate() { tone(520, 0.035, { v: 0.06 }); tone(780, 0.04, { v: 0.06, at: 0.035 }); },
     lock() { noise(0.08, { v: 0.1, f: 400 }); tone(130, 0.09, { type: 'triangle', v: 0.2, to: 70 }); },
-    clear(n) {
+    clear(n, combo) {
       const seqs = { 1: [659, 988], 2: [659, 784, 988], 3: [523, 659, 784, 1047], 4: [523, 659, 784, 1047, 1319, 1047, 1319, 1568] };
-      arp(seqs[n] || seqs[1], n === 4 ? 0.07 : 0.06, { v: 0.1 });
+      const k = 1 + Math.min(combo || 0, 6) * 0.06;     // 콤보가 쌓이면 음이 올라감
+      arp((seqs[n] || seqs[1]).map((f) => f * k), n === 4 ? 0.07 : 0.06, { v: 0.1 });
       if (n === 4) noise(0.5, { v: 0.12, f: 6000, ft: 'lowpass', to: 400 });
     },
+    boom() { noise(0.4, { v: 0.2, f: 1800, ft: 'lowpass', to: 150 }); tone(220, 0.35, { type: 'sawtooth', v: 0.14, to: 45 }); },
+    star() { arp([1047, 1319, 1568, 2093], 0.05, { v: 0.08 }); },
+    perfect() { arp([523, 659, 784, 1047, 1319, 1568, 2093], 0.06, { v: 0.1 }); },
     stage() { arp([523, 659, 784, 1047, 0, 784, 1047, 1319, 1568], 0.1, { v: 0.1 }); },
     over() { arp([392, 349, 330, 294, 262, 196, 131], 0.17, { v: 0.11, d: 0.2 }); },
     rocket() { noise(2.6, { v: 0.14, f: 300, ft: 'lowpass', to: 2500 }); },
@@ -278,6 +284,8 @@ function fit() {
   CELLPX = cs / dpr;
   root.style.setProperty('--cell', CELLPX + 'px');
   root.style.setProperty('--f', f + 'px');
+  root.style.setProperty('--sf', Math.max(9, Math.min(f, H / 31)) + 'px');   // 오버레이 화면 글자 크기 (낮은 가로 화면에서 넘침 방지)
+  $('screens').classList.toggle('land', land);
   wrap.classList.toggle('land', land);
 
   bcv.width = fcv.width = cs * COLS; bcv.height = fcv.height = cs * ROWS;
@@ -299,7 +307,8 @@ function fit() {
 const G = {
   state: 'title',       // title | are | playing | clearing | event | dying | over | entry | paused
   pausedFrom: null,
-  grid: [], piece: null, next: 0, prev: -1, pieceStats: [0, 0, 0, 0, 0, 0, 0],
+  grid: [], piece: null, next: null, prev: -1, pieceStats: [0, 0, 0, 0, 0, 0, 0],
+  combo: 0, extra: 0, frame: 0, pieceCount: 0, booms: [], resets: 0, lowY: 0,
   score: 0, lines: 0, level: 0, startLevel: 0, nextLevelAt: 10,
   gravCount: 0, ground: 0, timer: 0,
   clearRows: [], clearDur: 32, flash: 0,
@@ -310,6 +319,11 @@ const emptyGrid = () => Array.from({ length: ROWS }, () => Array(COLS).fill(0));
 function rotateCW(m) {
   const n = m.length, r = m.map((row) => row.slice());
   for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) r[y][x] = m[n - 1 - x][y];
+  return r;
+}
+function rotateCCW(m) {
+  const n = m.length, r = m.map((row) => row.slice());
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) r[y][x] = m[x][n - 1 - y];
   return r;
 }
 function collide(m, px, py) {
@@ -325,6 +339,32 @@ function randType() {   // NES 방식: 한 번 재추첨
   let r = rnd(8);
   if (r === 7 || r === G.prev) r = rnd(7);
   G.prev = r; return r;
+}
+// 새 블록 만들기: 가끔 특수 칸이 하나 들어감 (행렬 값 1=일반, 2=폭탄, 3=별)
+function makePiece() {
+  const t = randType();
+  const m = SHAPES[TYPES[t]].map((r) => r.slice());
+  if (G.pieceCount >= 3 && Math.random() < 0.1) {
+    const cells = [];
+    m.forEach((row, y) => row.forEach((v, x) => { if (v) cells.push([x, y]); }));
+    const c = cells[rnd(cells.length)];
+    m[c[1]][c[0]] = Math.random() < 0.55 ? 2 : 3;
+  }
+  return { t, m };
+}
+function stackHeight() {
+  for (let r = 0; r < ROWS; r++) if (G.grid[r].some(Boolean)) return ROWS - r;
+  return 0;
+}
+// 아케이드식 잔해: 높은 라운드는 시작할 때 바닥에 구멍 뚫린 줄이 깔림
+const rubbleRows = (lv) => Math.min(8, Math.floor(lv / 2));
+function addRubble(n) {
+  for (let r = ROWS - n; r < ROWS; r++) {
+    let row;
+    do { row = Array.from({ length: COLS }, () => (Math.random() < 0.65 ? rnd(7) + 1 : 0)); }
+    while (row.filter(Boolean).length < 3 || row.every(Boolean));
+    G.grid[r] = row;
+  }
 }
 
 /* ---------- HUD ---------- */
@@ -344,6 +384,8 @@ function hud() {
 function labels() {
   $('tLevel').textContent = 'ROUND ' + (store.settings.startLevel + 1);
   $('tMusic').textContent = 'MUSIC ' + store.settings.music;
+  $('tGhost').textContent = 'GHOST ' + (store.settings.ghost ? 'ON' : 'OFF');
+  $('tTap').textContent = 'TAP ' + (store.settings.tap === 'cw' ? 'CW' : 'SPLIT');
   $('btnSnd').textContent = 'SND ' + (store.settings.sfx ? 'ON' : 'OFF');
   $('btnMus').textContent = 'MUS ' + store.settings.music;
   $('tTop').textContent = pad(topScore(), 7);
@@ -381,7 +423,9 @@ function startGame() {
   G.startLevel = store.settings.startLevel; G.level = G.startLevel;
   G.nextLevelAt = G.startLevel * 10 + 10;
   G.flash = 0; G.event = null; G.lastEntry = null;
-  G.next = randType();
+  G.combo = 0; G.extra = 0; G.pieceCount = 0; G.booms = [];
+  G.next = makePiece();
+  addRubble(rubbleRows(G.level));
   store.stats.games++; save();
   fctx.setTransform(1, 0, 0, 1, 0, 0); fctx.clearRect(0, 0, fcv.width, fcv.height);
   drawNext(); hud(); labels(); updateBars();
@@ -393,36 +437,48 @@ function startGame() {
 }
 
 function spawn() {
-  const t = G.next; G.next = randType(); drawNext();
-  G.pieceStats[t]++; updateBars();
-  const m = SHAPES[TYPES[t]].map((r) => r.slice());
+  const cur = G.next; G.next = makePiece(); drawNext();
+  const t = cur.t, m = cur.m;
+  G.pieceCount++; G.pieceStats[t]++; updateBars();
   const first = m.findIndex((r) => r.some(Boolean));
   G.piece = { t, m, x: Math.floor((COLS - m.length) / 2), y: -first };
-  G.gravCount = 0; G.ground = 0;
+  G.gravCount = 0; G.ground = 0; G.resets = 0; G.lowY = G.piece.y;
   if (collide(G.piece.m, G.piece.x, G.piece.y)) { die(); return; }
   G.state = 'playing';
 }
 
 function tryMove(dx, dy) {
   const p = G.piece;
-  if (!collide(p.m, p.x + dx, p.y + dy)) { p.x += dx; p.y += dy; return true; }
+  if (!collide(p.m, p.x + dx, p.y + dy)) {
+    p.x += dx; p.y += dy;
+    if (p.y > G.lowY) { G.lowY = p.y; G.resets = 0; }      // 더 아래로 내려가면 리셋 횟수 복구
+    return true;
+  }
   return false;
 }
-function movePiece(dx) { if (G.state === 'playing' && tryMove(dx, 0)) SFX.move(); }
-function rotatePiece() {
+// 바닥에 닿은 채로 이동/회전에 성공하면 고정 타이머를 되돌려 줌 (최대 MAX_RESETS 번)
+function touchReset() {
+  const p = G.piece;
+  if (collide(p.m, p.x, p.y + 1) && G.resets < MAX_RESETS) { G.resets++; G.ground = 0; }
+}
+function movePiece(dx) { if (G.state === 'playing' && tryMove(dx, 0)) { SFX.move(); touchReset(); } }
+function rotatePiece(dir) {
   if (G.state !== 'playing') return;
   const p = G.piece;
   if (p.t === 1) return;                       // O는 회전 없음
-  const m2 = rotateCW(p.m);
-  const kicks = p.t === 0 ? [0, -1, 1, -2, 2] : [0, -1, 1];
+  const m2 = dir < 0 ? rotateCCW(p.m) : rotateCW(p.m);
+  const kicks = p.t === 0
+    ? [[0, 0], [-1, 0], [1, 0], [-2, 0], [2, 0], [0, -1]]
+    : [[0, 0], [-1, 0], [1, 0], [0, -1], [-1, -1], [1, -1]];
   for (const k of kicks) {
-    if (!collide(m2, p.x + k, p.y)) { p.m = m2; p.x += k; SFX.rotate(); return; }
+    if (!collide(m2, p.x + k[0], p.y + k[1])) {
+      p.m = m2; p.x += k[0]; p.y += k[1]; SFX.rotate(); touchReset(); return;
+    }
   }
 }
-function softStep() {
+function softStep() {          // 바닥에서는 고정하지 않음 (고정은 lock delay 가 담당)
   if (G.state !== 'playing') return;
   if (tryMove(0, 1)) { G.score += 1; G.gravCount = 0; hud(); }
-  else lockPiece();
 }
 function hardDrop() {
   if (G.state !== 'playing') return;
@@ -430,35 +486,66 @@ function hardDrop() {
   G.score += n * 2; hud(); shake(); lockPiece();
 }
 
+// 바닥에 닿은 뒤 고정까지의 프레임 (최소 30프레임 = 0.5초, 낮은 레벨은 중력 주기만큼)
+const lockDelay = () => Math.max(30, GRAVITY[Math.min(G.level, 29)]);
 function stepPlaying() {
   const g = GRAVITY[Math.min(G.level, 29)];
   if (collide(G.piece.m, G.piece.x, G.piece.y + 1)) {
     G.ground++; G.gravCount = 0;
-    if (G.ground >= Math.max(g, 12)) lockPiece();
+    if (G.ground >= lockDelay()) lockPiece();
   } else {
     G.ground = 0; G.gravCount++;
-    if (G.gravCount >= g) { G.gravCount = 0; G.piece.y++; }
+    if (G.gravCount >= g) {
+      G.gravCount = 0; G.piece.y++;
+      if (G.piece.y > G.lowY) { G.lowY = G.piece.y; G.resets = 0; }
+    }
   }
 }
 
 function lockPiece() {
-  const p = G.piece; let over = false;
+  const p = G.piece; let over = false; const bombs = [];
   p.m.forEach((row, y) => row.forEach((v, x) => {
     if (!v) return;
     const gy = p.y + y, gx = p.x + x;
-    if (gy < 0) over = true; else G.grid[gy][gx] = p.t + 1;
+    if (gy < 0) { over = true; return; }
+    G.grid[gy][gx] = (p.t + 1) + 10 * (v - 1);        // 십의 자리: 0 일반 / 1 폭탄 / 2 별
+    if (v === 2) bombs.push([gx, gy]);
   }));
   G.piece = null; SFX.lock();
   if (over) { die(); return; }
+  if (bombs.length) explode(bombs);
   const rows = [];
   for (let r = 0; r < ROWS; r++) if (G.grid[r].every(Boolean)) rows.push(r);
   if (rows.length) {
+    G.combo++;
+    let stars = 0;
+    rows.forEach((r) => G.grid[r].forEach((v) => { if (Math.floor((v - 1) / 10) === 2) stars++; }));
     G.state = 'clearing'; G.clearRows = rows; G.timer = 0;
     G.clearDur = rows.length === 4 ? 46 : 32;
-    SFX.clear(rows.length);
-    if (rows.length === 4) { G.flash = 44; toast('TETRIS!', 1300); vibrate([40, 30, 80]); }
-    else if (rows.length >= 2) { toast(rows.length === 2 ? 'DOUBLE' : 'TRIPLE', 700); vibrate(30); }
-  } else { G.state = 'are'; G.timer = 12; }
+    G.extra = (G.combo >= 2 ? 50 * (G.combo - 1) * (G.level + 1) : 0) + stars * 500 * (G.level + 1);
+    SFX.clear(rows.length, G.combo);
+    if (stars) SFX.star();
+    const lines = [];
+    if (rows.length === 4) { G.flash = 44; lines.push('TETRIS!'); vibrate([40, 30, 80]); }
+    else if (rows.length >= 2) { lines.push(rows.length === 2 ? 'DOUBLE' : 'TRIPLE'); vibrate(30); }
+    if (G.combo >= 2) lines.push('COMBO x' + G.combo);
+    if (stars) lines.push('STAR +' + (stars * 500 * (G.level + 1)));
+    if (lines.length) toast(lines.join('\n'), 1100);
+  } else { G.combo = 0; G.state = 'are'; G.timer = 12; }
+}
+// 폭탄: 놓인 폭탄 칸 주변 3x3 블록을 지움
+function explode(bombs) {
+  let n = 0;
+  bombs.forEach((b) => {
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const x = b[0] + dx, y = b[1] + dy;
+      if (x < 0 || x >= COLS || y < 0 || y >= ROWS) continue;
+      if (G.grid[y][x]) { G.grid[y][x] = 0; n++; }
+    }
+    G.booms.push({ x: b[0], y: b[1], t: 0 });
+  });
+  G.score += n * 10 * (G.level + 1); hud();
+  SFX.boom(); shake(); vibrate([30, 20, 60]);
 }
 
 function stepClearing() {
@@ -467,9 +554,14 @@ function stepClearing() {
   const rows = G.clearRows.slice().sort((a, b) => a - b);
   rows.forEach((r) => { G.grid.splice(r, 1); G.grid.unshift(Array(COLS).fill(0)); });
   const n = rows.length;
-  G.score += LINE_SCORE[n] * (G.level + 1);
+  G.score += LINE_SCORE[n] * (G.level + 1) + (G.extra || 0); G.extra = 0;
   G.lines += n;
   if (n === 4) store.stats.tetrises++;
+  if (G.grid.every((row) => row.every((v) => !v))) {      // 퍼펙트 클리어
+    const pc = 3000 * (G.level + 1);
+    G.score += pc; G.flash = 44; SFX.perfect(); vibrate([60, 30, 60, 30, 120]);
+    toast('PERFECT!\n+' + pc, 1500);
+  }
   let leveled = false;
   while (G.lines >= G.nextLevelAt) { G.level++; G.nextLevelAt += 10; leveled = true; }
   G.clearRows = []; hud();
@@ -481,17 +573,18 @@ function startEvent() {
   Snd.setTempoLevel(G.level);
   store.stats.bestLevel = Math.max(store.stats.bestLevel, G.level + 1); save();
   const rocket = G.level % 5 === 0;
+  const heightBonus = (ROWS - stackHeight()) * 100;        // 남은 빈 높이 보너스 (아케이드 방식)
   const bonus = 500 * G.level + (rocket ? 1000 * (G.level / 5) : 0);
-  G.score += bonus; hud();
-  G.state = 'event';
+  G.score += bonus + heightBonus; hud();
+  G.state = 'event'; G.combo = 0; G.extra = 0;
   if (rocket) {
-    G.event = { type: 'rocket', t: 0, dur: 280, p: [], bonus,
+    G.event = { type: 'rocket', t: 0, dur: 280, p: [], bonus: bonus + heightBonus, wipe: ROWS - 1,
       stars: Array.from({ length: 26 }, () => ({ x: rnd(80), y: rnd(160) })) };
     toast('ROCKET\nBONUS!', 1400);
   } else {
-    G.event = { type: 'stage', t: 0, dur: 150, p: [], bonus };
+    G.event = { type: 'stage', t: 0, dur: 150, p: [], bonus, wipe: ROWS - 1 };
     SFX.stage();
-    toast('ROUND ' + G.level + '\nCLEAR!', 2200);
+    toast('ROUND ' + G.level + '\nCLEAR!' + (heightBonus ? '\nHEIGHT +' + heightBonus : ''), 2200);
   }
   vibrate([60, 40, 60]);
 }
@@ -507,6 +600,8 @@ function burst(ev) {
 }
 function stepEvent() {
   const ev = G.event; ev.t++;
+  // 보드 비우기: 아래 줄부터 2프레임에 한 줄씩 사라짐
+  if (ev.t >= 24 && ev.t % 2 === 0 && ev.wipe >= 0) { G.grid[ev.wipe].fill(0); ev.wipe--; }
   if (ev.type === 'stage') {
     if (ev.t < 90 && ev.t % 26 === 1) burst(ev);
     ev.p.forEach((q) => { q.x += q.vx; q.y += q.vy; q.vy += 0.035; q.life--; });
@@ -531,7 +626,10 @@ function stepEvent() {
 }
 function endEvent() {
   G.event = null; fctx.setTransform(1, 0, 0, 1, 0, 0); fctx.clearRect(0, 0, fcv.width, fcv.height); hideToast();
-  G.state = 'are'; G.timer = 24;
+  G.grid = emptyGrid(); G.booms = [];                 // 새 라운드는 빈 판에서 시작
+  addRubble(rubbleRows(G.level));                     // 높은 라운드는 바닥에 잔해
+  G.state = 'are'; G.timer = 40;
+  toast('ROUND ' + (G.level + 1), 700);
 }
 
 /* ---------- 게임 오버 ---------- */
@@ -596,7 +694,7 @@ function openRecords(from) {
 /* ---------- 일시정지 ---------- */
 function pauseGame() {
   if (!['playing', 'clearing', 'are', 'event'].includes(G.state)) return;
-  G.pausedFrom = G.state; G.state = 'paused'; tp = null;
+  G.pausedFrom = G.state; G.state = 'paused'; tps.clear();
   show('pause'); Snd.suspend();
 }
 function resumeGame() {
@@ -605,7 +703,8 @@ function resumeGame() {
 }
 function toTitle() {
   Snd.stop(); wakeOff(); hideToast();
-  G.state = 'title'; G.event = null; G.flash = 0; G.piece = null; G.grid = emptyGrid();
+  G.state = 'title'; G.event = null; G.flash = 0; G.piece = null; G.grid = emptyGrid(); G.booms = [];
+  $('boardWrap').classList.remove('danger');
   fctx.setTransform(1, 0, 0, 1, 0, 0); fctx.clearRect(0, 0, fcv.width, fcv.height);
   labels(); hud(); show('title');
 }
@@ -613,14 +712,39 @@ function toTitle() {
 /* ===========================================================
  *  렌더링
  * =========================================================== */
+// 특수 칸 표시: kind 1 = 폭탄(검은 공), 2 = 별
+function drawSpecial(g, x, y, s, kind) {
+  const cx = x + s / 2, cy = y + s / 2, flash = Math.floor(G.frame / 12) % 2 === 0;
+  if (kind === 1) {
+    const r = s * 0.3;
+    g.fillStyle = '#0b0b0b'; g.beginPath(); g.arc(cx, cy + s * 0.04, r, 0, 6.2832); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.75)'; g.fillRect(cx - r * 0.55, cy - r * 0.45, Math.max(2, s * 0.1), Math.max(2, s * 0.1));
+    g.strokeStyle = '#ffb000'; g.lineWidth = Math.max(1.5, s * 0.07);
+    g.beginPath(); g.moveTo(cx + r * 0.5, cy - r * 0.8); g.lineTo(cx + r * 0.95, cy - r * 1.3); g.stroke();
+    g.fillStyle = flash ? '#fff' : '#ff3b30'; const sp = Math.max(2, s * 0.12); g.fillRect(cx + r * 0.95 - sp / 2, cy - r * 1.3 - sp / 2, sp, sp);
+  } else {
+    const R = s * 0.36, r = s * 0.15;
+    g.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / 5, rad = i % 2 ? r : R;
+      g[i ? 'lineTo' : 'moveTo'](cx + Math.cos(a) * rad, cy + Math.sin(a) * rad);
+    }
+    g.closePath(); g.fillStyle = flash ? '#fffbd0' : '#ffd60a'; g.fill();
+    g.strokeStyle = '#7a4a00'; g.lineWidth = Math.max(1, s * 0.05); g.stroke();
+  }
+}
+function drawCell(g, x, y, size, type, kind) {
+  g.drawImage(sprites[type], x, y, size, size);
+  if (kind) drawSpecial(g, x, y, size, kind);
+}
 function drawNext() {
   nctx.fillStyle = '#000'; nctx.fillRect(0, 0, ncv.width, ncv.height);
-  const m = SHAPES[TYPES[G.next]];
+  const m = G.next.m;
   let r0 = 9, r1 = -1, c0 = 9, c1 = -1;
   m.forEach((row, y) => row.forEach((v, x) => { if (v) { r0 = Math.min(r0, y); r1 = Math.max(r1, y); c0 = Math.min(c0, x); c1 = Math.max(c1, x); } }));
   const ox = Math.floor((ncv.width - (c1 - c0 + 1) * ncs) / 2), oy = Math.floor((ncv.height - (r1 - r0 + 1) * ncs) / 2);
   m.forEach((row, y) => row.forEach((v, x) => {
-    if (v) nctx.drawImage(sprites[G.next], ox + (x - c0) * ncs, oy + (y - r0) * ncs, ncs, ncs);
+    if (v) drawCell(nctx, ox + (x - c0) * ncs, oy + (y - r0) * ncs, ncs, G.next.t, v - 1);
   }));
 }
 
@@ -642,13 +766,25 @@ function drawBoard() {
           if (Math.floor(G.timer / 4) % 2 === 1) { bctx.fillStyle = '#fff'; bctx.fillRect(c * cs, r * cs, cs, cs); continue; }
         } else if (Math.abs(c - 4.5) <= (G.timer - wipeStart) / 2) continue;
       }
-      bctx.drawImage(sprites[v - 1], c * cs, r * cs);
+      drawCell(bctx, c * cs, r * cs, cs, (v - 1) % 10, Math.floor((v - 1) / 10));
     }
   }
   const p = G.piece;
+  if (p && G.state === 'playing' && store.settings.ghost) {      // 착지 위치 미리보기
+    let d = 0; while (d < ROWS && !collide(p.m, p.x, p.y + d + 1)) d++;
+    if (d > 0 && d < ROWS) {
+      bctx.globalAlpha = 0.28;
+      p.m.forEach((row, y) => row.forEach((v, x) => {
+        if (v && p.y + y + d >= 0) bctx.drawImage(sprites[p.t], (p.x + x) * cs, (p.y + y + d) * cs);
+      }));
+      bctx.globalAlpha = 1;
+    }
+  }
+  if (p && G.state === 'playing' && G.ground > 0) bctx.globalAlpha = 1 - 0.4 * Math.min(1, G.ground / lockDelay());   // 고정이 다가오면 흐려짐
   if (p) p.m.forEach((row, y) => row.forEach((v, x) => {
-    if (v && p.y + y >= 0) bctx.drawImage(sprites[p.t], (p.x + x) * cs, (p.y + y) * cs);
+    if (v && p.y + y >= 0) drawCell(bctx, (p.x + x) * cs, (p.y + y) * cs, cs, p.t, v - 1);
   }));
+  bctx.globalAlpha = 1;
   if (G.state === 'dying') {
     const rows = Math.min(ROWS, Math.floor(G.dieT / 2));
     for (let r = ROWS - rows; r < ROWS; r++) for (let c = 0; c < COLS; c++) bctx.drawImage(sprites[7], c * cs, r * cs);
@@ -697,6 +833,13 @@ function drawFx() {
   } else if (G.flash > 0 && Math.floor(G.flash / 4) % 2 === 0) {
     fctx.fillStyle = 'rgba(255,255,255,.38)'; fctx.fillRect(0, 0, 80, 160);
   }
+  G.booms.forEach((b) => {                                   // 폭탄 폭발 이펙트
+    const k = b.t / 26, cx = b.x * 8 + 4, cy = b.y * 8 + 4;
+    fctx.globalAlpha = 1 - k;
+    fctx.fillStyle = '#fff6a0'; fctx.beginPath(); fctx.arc(cx, cy, 6 + k * 14, 0, 6.2832); fctx.fill();
+    fctx.fillStyle = '#ff7a18'; fctx.beginPath(); fctx.arc(cx, cy, 4 + k * 10, 0, 6.2832); fctx.fill();
+    fctx.globalAlpha = 1;
+  });
 }
 
 /* ---------- 타이틀 어트랙트 ---------- */
@@ -709,7 +852,7 @@ function newAtt(init) {
 }
 function drawAttract() {
   actx.fillStyle = '#05051f'; actx.fillRect(0, 0, acv.width, acv.height);
-  actx.globalAlpha = 0.55;
+  actx.globalAlpha = 0.35;
   att.forEach((a, i) => {
     a.y += a.v; if (a.y > acv.height + cs) att[i] = newAtt(false);
     a.m.forEach((row, y) => row.forEach((v, x) => { if (v) actx.drawImage(sprites[a.t], a.x + x * cs, Math.floor(a.y) + y * cs); }));
@@ -721,7 +864,11 @@ function drawAttract() {
  *  메인 루프 (고정 60Hz)
  * =========================================================== */
 function update() {
-  if (G.flash > 0 && G.state !== 'paused') G.flash--;
+  if (G.state === 'paused') return;
+  G.frame++;
+  if (G.flash > 0) G.flash--;
+  if (G.booms.length) { G.booms.forEach((b) => b.t++); G.booms = G.booms.filter((b) => b.t < 26); }
+  if (G.frame % 8 === 0) $('boardWrap').classList.toggle('danger', G.state === 'playing' && stackHeight() >= 16);
   switch (G.state) {
     case 'are': if (--G.timer <= 0) { hideToast(); spawn(); } break;
     case 'playing': stepPlaying(); break;
@@ -749,16 +896,19 @@ function frame(now) {
  *  입력: 터치 / 포인터
  *   탭 = 회전 | 좌우 스와이프 = 이동(손가락 1:1) | 아래 드래그 = 소프트드롭 | 빠른 아래 플릭 = 하드드롭
  * =========================================================== */
-let tp = null;
+const tps = new Map();   // 손가락(포인터)마다 따로 추적 -> 멀티터치
+// SPLIT: 화면 왼쪽 탭 = 반시계, 오른쪽 탭 = 시계 / CW: 어디를 탭해도 시계
+const tapDir = (x) => (store.settings.tap === 'cw' ? 1 : (x < innerWidth / 2 ? -1 : 1));
 addEventListener('pointerdown', (e) => {
   Snd.unlock();
   if (e.target.closest('button')) return;
   if (G.state === 'event' && G.event && G.event.t > 45) { endEvent(); return; }
   if (G.state !== 'playing') return;
-  tp = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ax: e.clientX, ay: e.clientY, t: performance.now(), moved: false };
+  tps.set(e.pointerId, { sx: e.clientX, sy: e.clientY, ax: e.clientX, ay: e.clientY, t: performance.now(), moved: false });
 });
 addEventListener('pointermove', (e) => {
-  if (!tp || e.pointerId !== tp.id || G.state !== 'playing') return;
+  const tp = tps.get(e.pointerId);
+  if (!tp || G.state !== 'playing') return;
   const stepX = CELLPX * 0.9, stepY = CELLPX * 1.15;
   if (Math.hypot(e.clientX - tp.sx, e.clientY - tp.sy) > 10) tp.moved = true;
   const dx = e.clientX - tp.ax, dy = e.clientY - tp.ay;
@@ -773,17 +923,18 @@ addEventListener('pointermove', (e) => {
   }
 });
 function endPointer(e) {
-  if (!tp || e.pointerId !== tp.id) return;
-  const t = tp; tp = null;
+  const t = tps.get(e.pointerId); if (!t) return;
+  tps.delete(e.pointerId);
   if (G.state !== 'playing') return;
   const dt = performance.now() - t.t, dx = e.clientX - t.sx, dy = e.clientY - t.sy;
   if (e.type === 'pointerup') {
-    if (!t.moved && dt < 350) rotatePiece();
+    if (!t.moved && dt < 350) rotatePiece(tapDir(t.sx));            // 다른 손가락이 드래그 중이어도 회전됨
     else if (dy > CELLPX * 4 && dt < 300 && dy > Math.abs(dx) * 1.5) hardDrop();
   }
 }
 addEventListener('pointerup', endPointer);
 addEventListener('pointercancel', endPointer);
+addEventListener('blur', () => tps.clear());
 document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -800,7 +951,8 @@ addEventListener('keydown', (e) => {
     case 'ArrowLeft': movePiece(-1); break;
     case 'ArrowRight': movePiece(1); break;
     case 'ArrowDown': softStep(); break;
-    case 'ArrowUp': case 'z': case 'Z': case 'x': case 'X': if (!e.repeat) rotatePiece(); break;
+    case 'ArrowUp': case 'x': case 'X': if (!e.repeat) rotatePiece(1); break;
+    case 'z': case 'Z': if (!e.repeat) rotatePiece(-1); break;
     case ' ': if (!e.repeat) hardDrop(); break;
     default: if (isP) pauseGame(); return;
   }
@@ -829,6 +981,8 @@ const ACTIONS = {
   'mus-': () => setMusic(MUSIC[(MUSIC.indexOf(store.settings.music) + 2) % 3]),
   'mus+': () => setMusic(MUSIC[(MUSIC.indexOf(store.settings.music) + 1) % 3]),
   snd: () => { store.settings.sfx = !store.settings.sfx; Snd.setSfx(store.settings.sfx); save(); labels(); },
+  ghost: () => { store.settings.ghost = !store.settings.ghost; save(); labels(); },
+  tap: () => { store.settings.tap = store.settings.tap === 'cw' ? 'split' : 'cw'; save(); labels(); },
   pause: () => { if (G.state === 'paused') resumeGame(); else pauseGame(); },
   resume: () => resumeGame(),
   up: (b) => cycle(+b.dataset.i, 1),
@@ -874,8 +1028,9 @@ document.addEventListener('visibilitychange', () => {
 
 /* ---------- 시작 ---------- */
 Snd.setMode(store.settings.music); Snd.setSfx(store.settings.sfx);
-G.grid = emptyGrid(); G.next = rnd(7);
+G.grid = emptyGrid(); G.next = makePiece();
 $('btnFs').hidden = !(canFs() && !isStandalone());
+$('ver').textContent = 'v' + VERSION + '  ·  ' + BUILD;
 fit(); labels(); hud(); updateBars();
 requestAnimationFrame(frame);
 

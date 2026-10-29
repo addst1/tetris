@@ -77,24 +77,38 @@
         <button class="btn big blink" data-act="start">&#9654; START</button>
         <div class="row"><button class="btn sm" data-act="lvl-">&#9664;</button><span id="tLevel">ROUND 1</span><button class="btn sm" data-act="lvl+">&#9654;</button></div>
         <div class="row"><button class="btn sm" data-act="mus-">&#9664;</button><span id="tMusic">MUSIC A</span><button class="btn sm" data-act="mus+">&#9654;</button></div>
-        <button class="btn" data-act="records">RECORDS</button>
-        <button class="btn" data-act="help">HOW TO PLAY</button>
+        <div class="row2b">
+          <button class="btn xs" data-act="ghost" id="tGhost">GHOST ON</button>
+          <button class="btn xs" data-act="tap" id="tTap">TAP SPLIT</button>
+        </div>
+        <div class="row2b">
+          <button class="btn xs" data-act="records">RECORDS</button>
+          <button class="btn xs" data-act="help">HOW TO PLAY</button>
+        </div>
         <button class="btn" data-act="fs" id="btnFs" hidden>FULLSCREEN</button>
         <button class="btn" data-act="install" id="btnInstall" hidden>INSTALL APP</button>
       </div>
       <div class="foot">HIGH SCORE <span id="tTop">0000000</span></div>
+      <div class="ver" id="ver"></div>
     </section>
 
     <!-- HELP -->
     <section id="sHelp" class="screen">
       <h2>HOW TO PLAY</h2>
       <ul class="help">
-        <li><b>탭</b> 블록 회전</li>
-        <li><b>좌우 스와이프</b> 손가락 따라 이동</li>
+        <li><b>좌우 드래그</b> 손가락 따라 이동</li>
+        <li><b>오른쪽 탭</b> 시계 방향 회전</li>
+        <li><b>왼쪽 탭</b> 반시계 방향 회전</li>
+        <li><b>드래그 중 탭</b> 다른 손가락으로 회전</li>
         <li><b>아래로 드래그</b> 천천히 내리기</li>
         <li><b>아래로 빠르게 휙</b> 한 번에 낙하</li>
         <li><b>4줄 동시 제거</b> TETRIS 보너스</li>
-        <li><b>LINES LEFT 0</b> ROUND CLEAR 이벤트</li>
+        <li><b>폭탄 블록</b> 놓으면 3×3 폭발</li>
+        <li><b>별 블록</b> 줄 제거 시 보너스</li>
+        <li><b>연속 제거</b> COMBO 보너스</li>
+        <li><b>판이 텅 비면</b> PERFECT 보너스</li>
+        <li><b>LINES LEFT 0</b> ROUND CLEAR</li>
+        <li><b>라운드 클리어</b> 판 초기화 + 높이 보너스</li>
         <li><b>5라운드마다</b> 로켓 발사 보너스</li>
       </ul>
       <p class="kb">PC: ←→ 이동 / ↑ 회전 / ↓ 내리기 / Space 낙하 / P 일시정지<br>홈 화면에 추가하면 전체화면 앱으로 실행됩니다</p>

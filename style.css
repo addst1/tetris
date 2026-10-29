@@ -89,6 +89,9 @@ canvas { display: block; }
 #board, #fx { position: absolute; inset: 0; width: 100%; height: 100%; }
 #fx { pointer-events: none; }
 #boardWrap.shake { animation: shake .14s steps(2); }
+#boardWrap::after { content: ""; position: absolute; inset: 0; z-index: 4; pointer-events: none; opacity: 0; box-shadow: inset 0 0 0 .3em #ff3b30, inset 0 0 1.2em rgba(255,59,48,.8); }
+#boardWrap.danger::after { animation: danger .6s steps(1) infinite; }
+@keyframes danger { 0% { opacity: 1; } 50% { opacity: 0; } }
 @keyframes shake { 50% { transform: translateY(.25em); } }
 
 #toast {
@@ -138,7 +141,7 @@ canvas { display: block; }
 
 /* ---------- 오버레이 화면 ---------- */
 #screens {
-  position: fixed; inset: 0; z-index: 50; pointer-events: none; font-size: var(--f);
+  position: fixed; inset: 0; z-index: 50; pointer-events: none; font-size: var(--sf, var(--f));
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 .screen {
@@ -172,8 +175,8 @@ canvas { display: block; }
 .blink { animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: .3; } }
 
-.help { list-style: none; font-family: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif; font-size: 1.05em; line-height: 1.9; text-align: left; }
-.help b { display: inline-block; min-width: 8.5em; color: var(--yel); }
+.help { list-style: none; font-family: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif; font-size: 1em; line-height: 1.65; text-align: left; }
+.help b { display: inline-block; min-width: 9.5em; color: var(--yel); }
 .kb { font-family: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif; font-size: .9em; line-height: 1.6; color: var(--cyan); }
 
 #recList { width: min(92%, 28em); display: flex; flex-direction: column; gap: .35em; }
@@ -197,4 +200,9 @@ canvas { display: block; }
     repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 1px, transparent 1px 3px),
     radial-gradient(ellipse at center, transparent 62%, rgba(0,0,0,.38) 100%);
 }
+.row2b { display: flex; gap: .2em; justify-content: center; }
+.btn.xs { font-size: .78em; padding: .5em .7em; min-height: 2.6em; color: var(--cyan); }
+#sTitle .ver { position: absolute; bottom: max(.6em, env(safe-area-inset-bottom)); left: 0; right: 0; font-size: .6em; color: #6b70c4; letter-spacing: .1em; }
+.help li { break-inside: avoid; }
+#screens.land .help { column-count: 2; column-gap: 1.6em; }
 @media (prefers-reduced-motion: reduce) { .blink { animation: none; } }
