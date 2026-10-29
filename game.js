@@ -28,7 +28,7 @@ const SHAPES = {
 const GRAVITY = [48,43,38,33,28,23,18,13,8,6,5,5,5,4,4,4,3,3,3,2,2,2,2,2,2,2,2,2,2,1];
 const LINE_SCORE = [0, 40, 100, 300, 1200];
 const KEY = 'retroblocks.v1';
-const VERSION = '1.5.0', BUILD = '2026-10-29';   // 배포할 때 sw.js 의 CACHE 이름도 같이 올리세요
+const VERSION = '1.6.0', BUILD = '2026-10-29';   // 배포할 때 sw.js 의 CACHE 이름도 같이 올리세요
 const MAX_RESETS = 15;      // 바닥에 닿은 뒤 이동/회전으로 고정 타이머를 되돌릴 수 있는 최대 횟수
 
 const $ = (id) => document.getElementById(id);
@@ -61,7 +61,7 @@ const topScore = () => (store.scores[0] ? store.scores[0].score : 0);
  * =========================================================== */
 const Snd = (() => {
   let ctx = null, master = null, bus = null, sfxBus = null, pulse = null, noiseBuf = null;
-  let mode = 'A', sfxOn = true, tempoMul = 1, held = false;
+  let sfxOn = true, ti = 0, tempoMul = 1, held = false;
   let timer = null, track = null, idx = 0, loopStart = 0, spb = 0.4;
 
   const SEMI = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
@@ -108,7 +108,32 @@ const Snd = (() => {
       },
       () => [[0, 'hat'], [1, 'hat'], [2, 'hat'], [3, 'hat'], [2, 'snare']],
       132),
+    // C: 오리지널 추격전 (D단조)
+    C: buildTrack(
+      'D5:.5 F5:.5 A5:1 F5:.5 D5:.5 F5:1 Bb4:.5 D5:.5 F5:1 D5:.5 Bb4:.5 D5:1 C5:.5 F5:.5 A5:1 F5:.5 C5:.5 F5:1 C5:.5 E5:.5 G5:1 E5:.5 C5:.5 G5:.5 E5:.5 ' +
+      'D5:1 F5:.5 A5:.5 D6:1.5 A5:.5 D6:1 C6:.5 Bb5:.5 A5:1 F5:1 E5:.5 A5:.5 C6:1 B5:.5 A5:.5 E5:1 D5:2 A4:1 R:1',
+      (m) => { const r = ['D','Bb','F','C','D','Bb','A','D'][m % 8]; return [0,1,0,1,0,1,0,1].map((o) => r + (o ? 3 : 2)); },
+      () => [[0, 'hat'], [0.5, 'hat'], [1, 'snare'], [1.5, 'hat'], [2, 'hat'], [2.5, 'hat'], [3, 'snare'], [3.5, 'hat']],
+      144),
+    // D: 오리지널 몽환 아르페지오 (C장조)
+    D: buildTrack(
+      'E5:1 G5:1 C6:2 A5:1 E5:1 C5:1 E5:1 A5:1.5 G5:.5 F5:1 A5:1 G5:1 D5:1 B4:1 D5:1 ' +
+      'E5:.5 G5:.5 C6:1 B5:1 G5:1 A5:2 E5:1 C5:1 F5:1 A5:1 D6:1 A5:1 B5:1 G5:1 D5:2',
+      (m) => {
+        const ch = [['C3','G3','E3','G3'], ['A2','E3','C3','E3'], ['F2','C3','A2','C3'], ['G2','D3','B2','D3']][m % 4];
+        return ch.concat(ch);
+      },
+      () => [[0, 'hat'], [2, 'snare'], [3, 'hat']],
+      116),
+    // E: 오리지널 행진곡 (E단조)
+    E: buildTrack(
+      'E5:.5 E5:.5 G5:.5 B5:.5 A5:1 G5:.5 E5:.5 G5:.5 G5:.5 E5:.5 C5:.5 E5:2 F#5:.5 A5:.5 D6:1 A5:.5 F#5:.5 D5:1 E5:1 B4:1 E5:1 G5:1 ' +
+      'B5:.5 A5:.5 G5:.5 A5:.5 B5:1 E6:1 C6:.5 B5:.5 A5:.5 G5:.5 E5:2 D#5:.5 F#5:.5 B5:1 A5:.5 F#5:.5 D#5:1 E5:2 B4:1 R:1',
+      (m) => { const r = ['E','C','D','E','E','C','B','E'][m % 8]; return [0,1,1,0,0,1,1,0].map((o) => r + (o ? 3 : 2)); },
+      () => [[0, 'hat'], [1, 'snare'], [1.5, 'hat'], [2, 'hat'], [3, 'snare'], [3.5, 'hat']],
+      156),
   };
+  const ORDER = ['A', 'C', 'B', 'D', 'E'];   // 라운드가 오를 때마다 다음 곡
 
   function pulseWave(d) {
     const n = 32, real = new Float32Array(n + 1), imag = new Float32Array(n + 1);
@@ -217,14 +242,13 @@ const Snd = (() => {
       const ch = noiseBuf.getChannelData(0);
       for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
     },
-    setMode(m) { mode = m; },
     setSfx(on) { sfxOn = on; },
-    setTempoLevel(l) { tempoMul = 1 + Math.min(l, 18) * 0.025; },
+    setTempoLevel(l) { tempoMul = 1 + Math.min(l, 18) * 0.025; ti = l % ORDER.length; },
     start() {
-      if (!ctx || mode === 'OFF') return;
+      if (!ctx || !sfxOn) return;
       this.stop();
       bus = ctx.createGain(); bus.gain.value = 1; bus.connect(master);
-      track = TRACKS[mode]; idx = 0;
+      track = TRACKS[ORDER[ti]]; idx = 0;
       spb = 60 / (track.bpm * tempoMul);
       loopStart = ctx.currentTime + 0.08;
       timer = setInterval(pump, 30); pump();
@@ -256,18 +280,15 @@ let dpr = 1;
 let CELLPX = 24;      // 블록 1칸 (CSS px) — 터치 거리 계산용
 let sprites = [];
 
-function makeSprite(col, s) {   // 네온 유리 블록: 어두운 색 면 + 빛나는 테두리
+const hexA = (h, a) => `rgba(${parseInt(h.slice(1, 3), 16)},${parseInt(h.slice(3, 5), 16)},${parseInt(h.slice(5, 7), 16)},${a})`;
+function makeSprite(col, s) {   // 시안: 어두운 속 + 밝은 네온 테두리의 사각 블록
   const c = document.createElement('canvas'); c.width = c.height = s;
   const g = c.getContext('2d');
-  const m = Math.max(1.5, s * 0.1), w = s - m * 2, lw = Math.max(1.5, s * 0.09), r = Math.max(2, s * 0.14);
-  const path = () => { g.beginPath(); if (g.roundRect) g.roundRect(m, m, w, w, r); else g.rect(m, m, w, w); };
-  const grad = g.createLinearGradient(m, m, m + w, m + w);
-  grad.addColorStop(0, col); grad.addColorStop(1, col);
-  path(); g.globalAlpha = 0.26; g.fillStyle = grad; g.fill(); g.globalAlpha = 1;
-  g.shadowColor = col; g.shadowBlur = s * 0.28; g.strokeStyle = col; g.lineWidth = lw; path(); g.stroke();
-  g.shadowBlur = 0; g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = Math.max(1, lw * 0.35);
-  g.beginPath(); if (g.roundRect) g.roundRect(m, m, w, w, r); else g.rect(m, m, w, w); g.stroke();
-  g.fillStyle = 'rgba(255,255,255,.35)'; g.fillRect(m + lw, m + lw, Math.max(2, w * 0.28), Math.max(1.5, s * 0.06));
+  const m = Math.max(1.5, s * 0.08), w = s - m * 2, lw = Math.max(2, s * 0.11), r = Math.max(1, s * 0.05);
+  const path = (i) => { g.beginPath(); if (g.roundRect) g.roundRect(m + i, m + i, w - i * 2, w - i * 2, r); else g.rect(m + i, m + i, w - i * 2, w - i * 2); };
+  path(lw / 2); g.fillStyle = hexA(col, 0.12); g.fill();
+  g.shadowColor = col; g.shadowBlur = s * 0.3; g.strokeStyle = col; g.lineWidth = lw; path(lw / 2); g.stroke();
+  g.shadowBlur = 0; g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = Math.max(1, lw * 0.3); path(lw / 2); g.stroke();
   return c;
 }
 function buildSprites() { sprites = PIECE_COLORS.concat([DEAD_COLOR]).map((c) => makeSprite(c, cs)); }
@@ -277,11 +298,11 @@ function fit() {
   const W = wrap.clientWidth || window.innerWidth, H = wrap.clientHeight || window.innerHeight;
   dpr = window.devicePixelRatio || 1;
   const land = W > H * 1.05;
-  let f, cell;
+  let f, cell, side = 0;
   if (!land) {
     f = Math.max(10, Math.min(W / 26, H / 50, 18));
-    const side = Math.round(f * 5.6);
-    cell = Math.min((H - f * 9) / 20, (W - f * 3 - side) / 10);
+    side = Math.round(f * 5.8);
+    cell = Math.min((H - f * 10) / 20, (W - f * 3 - side) / 10);
     root.style.setProperty('--side', side + 'px');
   } else {
     f = Math.max(10, Math.min(W / 58, H / 26));
@@ -296,7 +317,7 @@ function fit() {
   wrap.classList.toggle('land', land);
 
   bcv.width = fcv.width = cs * COLS; bcv.height = fcv.height = cs * ROWS;
-  ncs = Math.max(6, Math.floor(Math.min(cs * 0.55, f * 1.6 * dpr)));
+  ncs = land ? Math.floor(cs * 0.95) : Math.max(6, Math.floor(((side - f * 1.5) / 4) * dpr));
   ncv.width = ncs * 4; ncv.height = ncs * 3;
   ncv.style.width = (ncs * 4 / dpr) + 'px'; ncv.style.height = (ncs * 3 / dpr) + 'px';
 
@@ -375,27 +396,18 @@ function addRubble(n) {
 }
 
 /* ---------- HUD ---------- */
-const bars = $('bars').children;
-for (let i = 0; i < 7; i++) { bars[i].style.background = PIECE_COLORS[i]; bars[i].style.color = PIECE_COLORS[i]; }
-function updateBars() {
-  const mx = Math.max(1, ...G.pieceStats);
-  for (let i = 0; i < 7; i++) bars[i].style.height = Math.max(3, Math.round((G.pieceStats[i] / mx) * 100)) + '%';
-}
+function updateBars() { /* STATS 제거됨 */ }
 const fmtN = (n) => Number(n).toLocaleString('en-US');
 function hud() {
   $('score').textContent = fmtN(G.score);
-  $('high').textContent = fmtN(Math.max(G.score, topScore()));
-  $('lines').textContent = pad(G.lines, 3);
-  $('round').textContent = pad(G.level + 1, 2);
-  $('left').textContent = pad(Math.max(0, G.nextLevelAt - G.lines), 2);
+  $('round').textContent = G.level + 1;
+  $('left').textContent = Math.max(0, G.nextLevelAt - G.lines);
 }
 function labels() {
-  $('tLevel').textContent = 'ROUND ' + (store.settings.startLevel + 1);
-  $('tMusic').textContent = 'MUSIC ' + store.settings.music;
+  $('tLevel').textContent = 'LEVEL ' + (store.settings.startLevel + 1);
   $('tGhost').textContent = 'GHOST ' + (store.settings.ghost ? 'ON' : 'OFF');
   $('tTap').textContent = 'TAP ' + (store.settings.tap === 'cw' ? 'CW' : 'SPLIT');
-  $('btnSnd').textContent = 'SND ' + (store.settings.sfx ? 'ON' : 'OFF');
-  $('btnMus').textContent = 'MUS ' + store.settings.music;
+  $('btnSnd').classList.toggle('off', !store.settings.sfx);
   $('tTop').textContent = pad(topScore(), 7);
 }
 let toastTimer = null;
@@ -750,7 +762,9 @@ function drawCell(g, x, y, size, type, kind) {
   g.drawImage(sprites[type], x, y, size, size);
   if (kind) drawSpecial(g, x, y, size, kind);
 }
+let lastNext = null;
 function drawNext() {
+  if (G.next !== lastNext) { lastNext = G.next; const pn = $('pNext'); pn.classList.remove('pulse'); void pn.offsetWidth; pn.classList.add('pulse'); }
   nctx.clearRect(0, 0, ncv.width, ncv.height);
   const m = G.next.m;
   let r0 = 9, r1 = -1, c0 = 9, c1 = -1;
@@ -763,8 +777,8 @@ function drawNext() {
 
 function drawBoard() {
   const w = cs * COLS, h = cs * ROWS;
-  bctx.fillStyle = '#06061a'; bctx.fillRect(0, 0, w, h);
-  bctx.strokeStyle = 'rgba(120,130,255,.22)'; bctx.lineWidth = 1; bctx.beginPath();
+  bctx.fillStyle = '#050810'; bctx.fillRect(0, 0, w, h);
+  bctx.strokeStyle = 'rgba(150,170,210,.13)'; bctx.lineWidth = 1; bctx.beginPath();
   for (let c = 1; c < COLS; c++) { bctx.moveTo(c * cs + 0.5, 0); bctx.lineTo(c * cs + 0.5, h); }
   for (let r = 1; r < ROWS; r++) { bctx.moveTo(0, r * cs + 0.5); bctx.lineTo(w, r * cs + 0.5); }
   bctx.stroke();
@@ -791,6 +805,16 @@ function drawBoard() {
         if (v && p.y + y + d >= 0) bctx.drawImage(sprites[p.t], (p.x + x) * cs, (p.y + y + d) * cs);
       }));
       bctx.globalAlpha = 1;
+    }
+  }
+  if (p && G.state === 'playing') {            // 시안의 떨어지는 궤적
+    const col = PIECE_COLORS[p.t];
+    for (let x = 0; x < p.m[0].length; x++) {
+      let top = -1; for (let y = 0; y < p.m.length; y++) if (p.m[y][x]) { top = y; break; }
+      if (top < 0) continue;
+      const yt = (p.y + top) * cs, hh = Math.min(yt, cs * 7); if (hh <= 0) continue;
+      const gr = bctx.createLinearGradient(0, yt, 0, yt - hh); gr.addColorStop(0, hexA(col, 0.3)); gr.addColorStop(1, hexA(col, 0));
+      bctx.fillStyle = gr; bctx.fillRect((p.x + x) * cs + cs * 0.12, yt - hh, cs * 0.76, hh);
     }
   }
   if (p && G.state === 'playing' && G.ground > 0) bctx.globalAlpha = 1 - 0.4 * Math.min(1, G.ground / lockDelay());   // 고정이 다가오면 흐려짐
@@ -1014,11 +1038,6 @@ addEventListener('keydown', (e) => {
 });
 
 /* ---------- 버튼 액션 ---------- */
-const MUSIC = ['A', 'B', 'OFF'];
-function setMusic(m) {
-  store.settings.music = m; Snd.setMode(m); save(); labels();
-  if (['playing', 'clearing', 'are', 'event'].includes(G.state)) { Snd.stop(); Snd.start(); }
-}
 const isStandalone = () => (window.matchMedia && (matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches)) || navigator.standalone;
 const fsEl = () => document.documentElement;
 const canFs = () => !!(fsEl().requestFullscreen || fsEl().webkitRequestFullscreen);
@@ -1032,9 +1051,10 @@ const ACTIONS = {
   recordsGame: () => openRecords('game'),
   'lvl-': () => { store.settings.startLevel = (store.settings.startLevel + 9) % 10; save(); labels(); },
   'lvl+': () => { store.settings.startLevel = (store.settings.startLevel + 1) % 10; save(); labels(); },
-  'mus-': () => setMusic(MUSIC[(MUSIC.indexOf(store.settings.music) + 2) % 3]),
-  'mus+': () => setMusic(MUSIC[(MUSIC.indexOf(store.settings.music) + 1) % 3]),
-  snd: () => { store.settings.sfx = !store.settings.sfx; Snd.setSfx(store.settings.sfx); save(); labels(); },
+  snd: () => {
+    store.settings.sfx = !store.settings.sfx; Snd.setSfx(store.settings.sfx); save(); labels();   // 소리 버튼 = 효과음 + 배경음 전체
+    if (!store.settings.sfx) Snd.stop(); else if (['playing', 'clearing', 'are'].includes(G.state)) Snd.start();
+  },
   ghost: () => { store.settings.ghost = !store.settings.ghost; save(); labels(); },
   tap: () => { store.settings.tap = store.settings.tap === 'cw' ? 'split' : 'cw'; save(); labels(); },
   pause: () => { if (G.state === 'paused') resumeGame(); else pauseGame(); },
@@ -1081,7 +1101,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 /* ---------- 시작 ---------- */
-Snd.setMode(store.settings.music); Snd.setSfx(store.settings.sfx);
+Snd.setSfx(store.settings.sfx);
 G.grid = emptyGrid(); G.next = makePiece();
 $('btnFs').hidden = !(canFs() && !isStandalone());
 $('ver').textContent = 'v' + VERSION + '  ·  ' + BUILD;

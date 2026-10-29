@@ -1,6 +1,6 @@
 /* Retro Blocks — Service Worker (오프라인 지원)
  * 파일을 수정해 배포할 때는 CACHE 버전을 올려 주세요. (예: v2 -> v3) */
-const CACHE = 'retro-blocks-v5';   // game.js 의 VERSION 과 함께 올리세요 (v1.5.0)
+const CACHE = 'retro-blocks-v6';   // game.js 의 VERSION 과 함께 올리세요 (v1.6.0)
 const ASSETS = [
   './',
   './index.html',
