@@ -13,8 +13,8 @@
 /* ---------- 상수 ---------- */
 const COLS = 10, ROWS = 20;
 const TYPES = ['I', 'O', 'T', 'S', 'Z', 'J', 'L'];
-const PIECE_COLORS = ['#ff3b30', '#ffd60a', '#30d158', '#ff2d95', '#19d3f3', '#3d5afe', '#ff9f0a'];
-const DEAD_COLOR = '#6b6f8a';
+const PIECE_COLORS = ['#38e8ff', '#ffe14a', '#b45cff', '#3cff6e', '#ff3d8e', '#4f7bff', '#ff9a2e'];   // I O T S Z J L (네온)
+const DEAD_COLOR = '#8088b8';
 const SHAPES = {
   I: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
   O: [[1,1],[1,1]],
@@ -28,7 +28,7 @@ const SHAPES = {
 const GRAVITY = [48,43,38,33,28,23,18,13,8,6,5,5,5,4,4,4,3,3,3,2,2,2,2,2,2,2,2,2,2,1];
 const LINE_SCORE = [0, 40, 100, 300, 1200];
 const KEY = 'retroblocks.v1';
-const VERSION = '1.3.0', BUILD = '2026-10-29';   // 배포할 때 sw.js 의 CACHE 이름도 같이 올리세요
+const VERSION = '1.5.0', BUILD = '2026-10-29';   // 배포할 때 sw.js 의 CACHE 이름도 같이 올리세요
 const MAX_RESETS = 15;      // 바닥에 닿은 뒤 이동/회전으로 고정 타이머를 되돌릴 수 있는 최대 횟수
 
 const $ = (id) => document.getElementById(id);
@@ -187,6 +187,15 @@ const Snd = (() => {
     boom() { noise(0.4, { v: 0.2, f: 1800, ft: 'lowpass', to: 150 }); tone(220, 0.35, { type: 'sawtooth', v: 0.14, to: 45 }); },
     star() { arp([1047, 1319, 1568, 2093], 0.05, { v: 0.08 }); },
     perfect() { arp([523, 659, 784, 1047, 1319, 1568, 2093], 0.06, { v: 0.1 }); },
+    dance() {      // 약 3.2초짜리 자작 춤곡 (2/4, 8비트)
+      const mel = [659, 784, 880, 784, 659, 587, 523, 587, 659, 784, 880, 988, 880, 784, 659, 0,
+                   784, 880, 988, 1175, 988, 880, 784, 659, 880, 1047, 1319, 1047, 880, 784, 880, 1319];
+      mel.forEach((f, i) => {
+        if (f) tone(f, 0.09, { at: i * 0.1, v: 0.08 });
+        if (i % 2 === 0) tone(i % 4 === 0 ? 110 : 165, 0.09, { at: i * 0.1, type: 'triangle', v: 0.16 });
+        else noise(0.04, { at: i * 0.1, v: 0.03, f: 7000, ft: 'highpass' });
+      });
+    },
     stage() { arp([523, 659, 784, 1047, 0, 784, 1047, 1319, 1568], 0.1, { v: 0.1 }); },
     over() { arp([392, 349, 330, 294, 262, 196, 131], 0.17, { v: 0.11, d: 0.2 }); },
     rocket() { noise(2.6, { v: 0.14, f: 300, ft: 'lowpass', to: 2500 }); },
@@ -247,19 +256,18 @@ let dpr = 1;
 let CELLPX = 24;      // 블록 1칸 (CSS px) — 터치 거리 계산용
 let sprites = [];
 
-function makeSprite(col, s) {
+function makeSprite(col, s) {   // 네온 유리 블록: 어두운 색 면 + 빛나는 테두리
   const c = document.createElement('canvas'); c.width = c.height = s;
   const g = c.getContext('2d');
-  const b = Math.max(2, Math.round(s * 0.15));
-  g.fillStyle = col; g.fillRect(0, 0, s, s);
-  const poly = (fill, pts) => { g.fillStyle = fill; g.beginPath(); g.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1]); g.closePath(); g.fill(); };
-  poly('rgba(255,255,255,.55)', [0, 0, s, 0, s - b, b, b, b]);          // 위
-  poly('rgba(255,255,255,.28)', [0, 0, b, b, b, s - b, 0, s]);          // 왼쪽
-  poly('rgba(0,0,0,.30)', [s, 0, s, s, s - b, s - b, s - b, b]);        // 오른쪽
-  poly('rgba(0,0,0,.50)', [0, s, s, s, s - b, s - b, b, s - b]);        // 아래
-  const gl = Math.max(2, Math.round(s * 0.16));
-  g.fillStyle = 'rgba(255,255,255,.45)'; g.fillRect(b + 1, b + 1, gl, gl);
-  g.strokeStyle = 'rgba(0,0,0,.65)'; g.lineWidth = 1; g.strokeRect(0.5, 0.5, s - 1, s - 1);
+  const m = Math.max(1.5, s * 0.1), w = s - m * 2, lw = Math.max(1.5, s * 0.09), r = Math.max(2, s * 0.14);
+  const path = () => { g.beginPath(); if (g.roundRect) g.roundRect(m, m, w, w, r); else g.rect(m, m, w, w); };
+  const grad = g.createLinearGradient(m, m, m + w, m + w);
+  grad.addColorStop(0, col); grad.addColorStop(1, col);
+  path(); g.globalAlpha = 0.26; g.fillStyle = grad; g.fill(); g.globalAlpha = 1;
+  g.shadowColor = col; g.shadowBlur = s * 0.28; g.strokeStyle = col; g.lineWidth = lw; path(); g.stroke();
+  g.shadowBlur = 0; g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = Math.max(1, lw * 0.35);
+  g.beginPath(); if (g.roundRect) g.roundRect(m, m, w, w, r); else g.rect(m, m, w, w); g.stroke();
+  g.fillStyle = 'rgba(255,255,255,.35)'; g.fillRect(m + lw, m + lw, Math.max(2, w * 0.28), Math.max(1.5, s * 0.06));
   return c;
 }
 function buildSprites() { sprites = PIECE_COLORS.concat([DEAD_COLOR]).map((c) => makeSprite(c, cs)); }
@@ -271,14 +279,13 @@ function fit() {
   const land = W > H * 1.05;
   let f, cell;
   if (!land) {
-    f = Math.max(10, Math.min(W / 26, H / 54));
-    const hdrH = Math.round(f * 5.8), ftrH = Math.round(f * 6.4);
-    cell = Math.min((H - hdrH - ftrH) / 20, (W - f * 1.6) / 10);
-    root.style.setProperty('--hdrH', hdrH + 'px');
-    root.style.setProperty('--ftrH', ftrH + 'px');
+    f = Math.max(10, Math.min(W / 26, H / 50, 18));
+    const side = Math.round(f * 5.6);
+    cell = Math.min((H - f * 9) / 20, (W - f * 3 - side) / 10);
+    root.style.setProperty('--side', side + 'px');
   } else {
     f = Math.max(10, Math.min(W / 58, H / 26));
-    cell = Math.min((H - f) / 20, (W * 0.46) / 10);
+    cell = Math.min((H - f * 1.6) / 20, (W * 0.46) / 10);
   }
   cs = Math.max(8, Math.floor(cell * dpr));
   CELLPX = cs / dpr;
@@ -369,14 +376,15 @@ function addRubble(n) {
 
 /* ---------- HUD ---------- */
 const bars = $('bars').children;
-for (let i = 0; i < 7; i++) bars[i].style.background = PIECE_COLORS[i];
+for (let i = 0; i < 7; i++) { bars[i].style.background = PIECE_COLORS[i]; bars[i].style.color = PIECE_COLORS[i]; }
 function updateBars() {
   const mx = Math.max(1, ...G.pieceStats);
   for (let i = 0; i < 7; i++) bars[i].style.height = Math.max(3, Math.round((G.pieceStats[i] / mx) * 100)) + '%';
 }
+const fmtN = (n) => Number(n).toLocaleString('en-US');
 function hud() {
-  $('score').textContent = pad(G.score, 7);
-  $('high').textContent = pad(Math.max(G.score, topScore()), 7);
+  $('score').textContent = fmtN(G.score);
+  $('high').textContent = fmtN(Math.max(G.score, topScore()));
   $('lines').textContent = pad(G.lines, 3);
   $('round').textContent = pad(G.level + 1, 2);
   $('left').textContent = pad(Math.max(0, G.nextLevelAt - G.lines), 2);
@@ -503,17 +511,15 @@ function stepPlaying() {
 }
 
 function lockPiece() {
-  const p = G.piece; let over = false; const bombs = [];
+  const p = G.piece; let over = false;
   p.m.forEach((row, y) => row.forEach((v, x) => {
     if (!v) return;
     const gy = p.y + y, gx = p.x + x;
     if (gy < 0) { over = true; return; }
     G.grid[gy][gx] = (p.t + 1) + 10 * (v - 1);        // 십의 자리: 0 일반 / 1 폭탄 / 2 별
-    if (v === 2) bombs.push([gx, gy]);
   }));
   G.piece = null; SFX.lock();
   if (over) { die(); return; }
-  if (bombs.length) explode(bombs);
   const rows = [];
   for (let r = 0; r < ROWS; r++) if (G.grid[r].every(Boolean)) rows.push(r);
   if (rows.length) {
@@ -522,6 +528,9 @@ function lockPiece() {
     rows.forEach((r) => G.grid[r].forEach((v) => { if (Math.floor((v - 1) / 10) === 2) stars++; }));
     G.state = 'clearing'; G.clearRows = rows; G.timer = 0;
     G.clearDur = rows.length === 4 ? 46 : 32;
+    const bombs = [];                                  // 지워지는 줄에 폭탄 칸이 있으면 폭발
+    rows.forEach((r) => G.grid[r].forEach((v, x) => { if (Math.floor((v - 1) / 10) === 1) bombs.push([x, r]); }));
+    if (bombs.length) explode(bombs);
     G.extra = (G.combo >= 2 ? 50 * (G.combo - 1) * (G.level + 1) : 0) + stars * 500 * (G.level + 1);
     SFX.clear(rows.length, G.combo);
     if (stars) SFX.star();
@@ -529,17 +538,18 @@ function lockPiece() {
     if (rows.length === 4) { G.flash = 44; lines.push('TETRIS!'); vibrate([40, 30, 80]); }
     else if (rows.length >= 2) { lines.push(rows.length === 2 ? 'DOUBLE' : 'TRIPLE'); vibrate(30); }
     if (G.combo >= 2) lines.push('COMBO x' + G.combo);
+    if (bombs.length) lines.push('BOMB!');
     if (stars) lines.push('STAR +' + (stars * 500 * (G.level + 1)));
     if (lines.length) toast(lines.join('\n'), 1100);
   } else { G.combo = 0; G.state = 'are'; G.timer = 12; }
 }
-// 폭탄: 놓인 폭탄 칸 주변 3x3 블록을 지움
+// 폭탄: 폭탄 칸이 든 줄이 지워질 때 터짐 — 지워지는 줄 밖의 주변 5x5 블록을 날림
 function explode(bombs) {
   let n = 0;
   bombs.forEach((b) => {
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
       const x = b[0] + dx, y = b[1] + dy;
-      if (x < 0 || x >= COLS || y < 0 || y >= ROWS) continue;
+      if (x < 0 || x >= COLS || y < 0 || y >= ROWS || G.clearRows.includes(y)) continue;
       if (G.grid[y][x]) { G.grid[y][x] = 0; n++; }
     }
     G.booms.push({ x: b[0], y: b[1], t: 0 });
@@ -569,27 +579,27 @@ function stepClearing() {
 }
 
 /* ---------- ROUND CLEAR 이벤트 ---------- */
+const DANCE_T = 192;                 // 댄스 장면 길이 (프레임, 약 3.2초). 5라운드마다 이어서 로켓이 나옴
 function startEvent() {
-  Snd.setTempoLevel(G.level);
+  Snd.setTempoLevel(G.level); Snd.stop();
   store.stats.bestLevel = Math.max(store.stats.bestLevel, G.level + 1); save();
   const rocket = G.level % 5 === 0;
   const heightBonus = (ROWS - stackHeight()) * 100;        // 남은 빈 높이 보너스 (아케이드 방식)
   const bonus = 500 * G.level + (rocket ? 1000 * (G.level / 5) : 0);
   G.score += bonus + heightBonus; hud();
   G.state = 'event'; G.combo = 0; G.extra = 0;
-  if (rocket) {
-    G.event = { type: 'rocket', t: 0, dur: 280, p: [], bonus: bonus + heightBonus, wipe: ROWS - 1,
-      stars: Array.from({ length: 26 }, () => ({ x: rnd(80), y: rnd(160) })) };
-    toast('ROCKET\nBONUS!', 1400);
-  } else {
-    G.event = { type: 'stage', t: 0, dur: 150, p: [], bonus, wipe: ROWS - 1 };
-    SFX.stage();
-    toast('ROUND ' + G.level + '\nCLEAR!' + (heightBonus ? '\nHEIGHT +' + heightBonus : ''), 2200);
-  }
+  G.event = {
+    type: rocket ? 'rocket' : 'stage', t: 0, rs: DANCE_T, dur: rocket ? DANCE_T + 280 : DANCE_T + 18,
+    p: [], bonus: bonus + heightBonus, wipe: ROWS - 1,
+    dancers: Math.min(3, 2 + Math.floor((G.level - 1) / 5)),   // 라운드가 오르면 무용수가 늘어남
+    stars: Array.from({ length: 30 }, () => ({ x: rnd(80), y: rnd(160) })),
+  };
+  SFX.dance();
+  toast('ROUND ' + G.level + '\nCLEAR!' + (heightBonus ? '\nHEIGHT +' + heightBonus : ''), 2800);
   vibrate([60, 40, 60]);
 }
 function burst(ev) {
-  const cx = 14 + Math.random() * 52, cy = 24 + Math.random() * 60, n = 26;
+  const cx = 12 + Math.random() * 56, cy = 14 + Math.random() * 40, n = 26;
   const base = rnd(7);
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2, sp = 0.6 + Math.random() * 0.9;
@@ -600,28 +610,30 @@ function burst(ev) {
 }
 function stepEvent() {
   const ev = G.event; ev.t++;
-  // 보드 비우기: 아래 줄부터 2프레임에 한 줄씩 사라짐
+  // 보드 비우기: 아래 줄부터 2프레임에 한 줄씩 사라짐 (댄스 장면 뒤에서 진행)
   if (ev.t >= 24 && ev.t % 2 === 0 && ev.wipe >= 0) { G.grid[ev.wipe].fill(0); ev.wipe--; }
-  if (ev.type === 'stage') {
-    if (ev.t < 90 && ev.t % 26 === 1) burst(ev);
-    ev.p.forEach((q) => { q.x += q.vx; q.y += q.vy; q.vy += 0.035; q.life--; });
-    ev.p = ev.p.filter((q) => q.life > 0);
-  } else {
-    if (ev.t === 1) toast('3', 0);
-    if (ev.t === 30) toast('2', 0);
-    if (ev.t === 60) toast('1', 0);
-    if ([1, 30, 60].includes(ev.t)) SFX.beep();
-    if (ev.t === 90) { toast('LIFT OFF!', 1500); SFX.rocket(); vibrate([80, 40, 120]); }
-    if (ev.t === 240) toast('+' + ev.bonus, 1200);
-    ev.lift = ev.t < 90 ? 0 : 0.0082 * Math.pow(ev.t - 90, 2);
-    if (ev.t >= 90) {
+  if (ev.t < DANCE_T - 30 && ev.t % 30 === 8) burst(ev);                         // 불꽃놀이
+  if (ev.t < DANCE_T - 20 && ev.t % 2 === 0) {                                    // 색종이
+    ev.p.push({ x: Math.random() * 80, y: -2, vx: (Math.random() - 0.5) * 0.5, vy: 0.5 + Math.random() * 0.7, life: 300, col: PIECE_COLORS[rnd(7)], s: 1.6, conf: true });
+  }
+  if (ev.type === 'rocket' && ev.t >= ev.rs) {
+    const rt = ev.t - ev.rs;
+    if (rt === 0) toast('ROCKET\nBONUS!', 0);
+    if (rt === 20) toast('3', 0);
+    if (rt === 45) toast('2', 0);
+    if (rt === 70) toast('1', 0);
+    if (rt === 20 || rt === 45 || rt === 70) SFX.beep();
+    if (rt === 95) { toast('LIFT OFF!', 1500); SFX.rocket(); vibrate([80, 40, 120]); }
+    if (rt === 240) toast('+' + ev.bonus, 1200);
+    ev.lift = rt < 95 ? 0 : 0.0082 * Math.pow(rt - 95, 2);
+    if (rt >= 95) {
       const ry = 118 - ev.lift * 0.8;
       ev.p.push({ x: 39 + Math.random() * 6, y: ry + 22, vx: (Math.random() - 0.5) * 0.8, vy: 0.5 + Math.random() * 0.6, life: 24,
-        col: Math.random() < 0.5 ? '#9aa0c8' : '#d0d4ee', s: 2.5 });
+        col: Math.random() < 0.5 ? '#9aa0c8' : '#d0d4ee', s: 2.5, smoke: true });
     }
-    ev.p.forEach((q) => { q.x += q.vx; q.y += q.vy; q.life--; });
-    ev.p = ev.p.filter((q) => q.life > 0);
   }
+  ev.p.forEach((q) => { q.x += q.vx; q.y += q.vy; if (!q.smoke && !q.conf) q.vy += 0.035; q.life--; });
+  ev.p = ev.p.filter((q) => q.life > 0 && q.y < 165);
   if (ev.t >= ev.dur) endEvent();
 }
 function endEvent() {
@@ -630,6 +642,7 @@ function endEvent() {
   addRubble(rubbleRows(G.level));                     // 높은 라운드는 바닥에 잔해
   G.state = 'are'; G.timer = 40;
   toast('ROUND ' + (G.level + 1), 700);
+  Snd.setTempoLevel(G.level); Snd.start();            // 배경음 다시 시작
 }
 
 /* ---------- 게임 오버 ---------- */
@@ -717,7 +730,7 @@ function drawSpecial(g, x, y, s, kind) {
   const cx = x + s / 2, cy = y + s / 2, flash = Math.floor(G.frame / 12) % 2 === 0;
   if (kind === 1) {
     const r = s * 0.3;
-    g.fillStyle = '#0b0b0b'; g.beginPath(); g.arc(cx, cy + s * 0.04, r, 0, 6.2832); g.fill();
+    g.fillStyle = '#0b0b0b'; g.beginPath(); g.arc(cx, cy + s * 0.04, r, 0, 6.2832); g.fill(); g.strokeStyle = '#c8cfff'; g.lineWidth = Math.max(1, s * 0.05); g.stroke();
     g.fillStyle = 'rgba(255,255,255,.75)'; g.fillRect(cx - r * 0.55, cy - r * 0.45, Math.max(2, s * 0.1), Math.max(2, s * 0.1));
     g.strokeStyle = '#ffb000'; g.lineWidth = Math.max(1.5, s * 0.07);
     g.beginPath(); g.moveTo(cx + r * 0.5, cy - r * 0.8); g.lineTo(cx + r * 0.95, cy - r * 1.3); g.stroke();
@@ -738,7 +751,7 @@ function drawCell(g, x, y, size, type, kind) {
   if (kind) drawSpecial(g, x, y, size, kind);
 }
 function drawNext() {
-  nctx.fillStyle = '#000'; nctx.fillRect(0, 0, ncv.width, ncv.height);
+  nctx.clearRect(0, 0, ncv.width, ncv.height);
   const m = G.next.m;
   let r0 = 9, r1 = -1, c0 = 9, c1 = -1;
   m.forEach((row, y) => row.forEach((v, x) => { if (v) { r0 = Math.min(r0, y); r1 = Math.max(r1, y); c0 = Math.min(c0, x); c1 = Math.max(c1, x); } }));
@@ -750,8 +763,8 @@ function drawNext() {
 
 function drawBoard() {
   const w = cs * COLS, h = cs * ROWS;
-  bctx.fillStyle = '#000'; bctx.fillRect(0, 0, w, h);
-  bctx.strokeStyle = 'rgba(110,120,255,.10)'; bctx.lineWidth = 1; bctx.beginPath();
+  bctx.fillStyle = '#06061a'; bctx.fillRect(0, 0, w, h);
+  bctx.strokeStyle = 'rgba(120,130,255,.22)'; bctx.lineWidth = 1; bctx.beginPath();
   for (let c = 1; c < COLS; c++) { bctx.moveTo(c * cs + 0.5, 0); bctx.lineTo(c * cs + 0.5, h); }
   for (let r = 1; r < ROWS; r++) { bctx.moveTo(0, r * cs + 0.5); bctx.lineTo(w, r * cs + 0.5); }
   bctx.stroke();
@@ -797,7 +810,7 @@ const ROCKET = [
 ];
 const ROCKET_COL = { a: '#ff3b30', c: '#f2f2f2', d: '#19d3f3' };
 function drawRocket(ev) {
-  const g = fctx;
+  const g = fctx, rt = ev.t - ev.rs;
   const grad = g.createLinearGradient(0, 0, 0, 160); grad.addColorStop(0, '#04041c'); grad.addColorStop(1, '#1d1d78');
   g.fillStyle = grad; g.fillRect(0, 0, 80, 160);
   const lift = ev.lift || 0;
@@ -809,35 +822,76 @@ function drawRocket(ev) {
     g.fillStyle = '#8b8fd8'; g.fillRect(0, gy, 80, 2); g.fillRect(14, gy - 24, 3, 24); g.fillRect(10, gy - 24, 7, 2);
   }
   ev.p.forEach((q) => { g.fillStyle = q.col; g.fillRect(q.x, q.y, q.s, q.s); });
-  const shakeX = ev.t > 60 && ev.t < 130 ? (ev.t % 2 ? 1 : -1) : 0;
+  const shakeX = rt > 70 && rt < 130 ? (rt % 2 ? 1 : -1) : 0;
   const x0 = 31 + shakeX, y0 = Math.round(118 - lift * 0.8);
   ROCKET.forEach((row, j) => [...row].forEach((ch, i) => {
     if (ch === '.') return; g.fillStyle = ROCKET_COL[ch]; g.fillRect(x0 + i * 2, y0 + j * 2, 2, 2);
   }));
-  if (ev.t >= 60) {
-    const fl = 6 + (ev.t % 3) * 3;
+  if (rt >= 70) {
+    const fl = 6 + (rt % 3) * 3;
     g.fillStyle = '#ff9f0a'; g.fillRect(x0 + 6, y0 + 20, 6, fl);
     g.fillStyle = '#ffe14a'; g.fillRect(x0 + 8, y0 + 20, 2, Math.max(2, fl - 4));
   }
+}
+// 직접 그린 일반적인 민속 무용수 (U: 점프 / S: 쪼그려 앉기 / K: 발차기)
+const DANCER = {
+  U: ['...hhhhh...', '..hhhhhhh..', 'r..sssss..r', 'rr.sssss.rr', '.rrrrrrrrr.', '...rrrrr...',
+      '...yyyyy...', '...bbbbb...', '...bb.bb...', '...bb.bb...', '..kkk.kkk..'],
+  S: ['...hhhhh...', '..hhhhhhh..', '...sssss...', '...sssss...', '.rrrrrrrrr.', '.rrrrrrrrr.',
+      '...yyyyy...', '..bbbbbbb..', '.bbb...bbb.', 'kkk.....kkk'],
+  K: ['...hhhhh...', '..hhhhhhh..', '...sssss...', '...sssss...', 'rrrrrrrrrrr', '...rrrrr...',
+      '...yyyyy...', '...bbbbb...', 'kbbbbb..bb.', '.......bb..', '......kkk..'],
+};
+const DCOL = { h: '#6b3a1a', s: '#ffd2a0', r: '#e0222a', y: '#ffd60a', b: '#2a4bd8', k: '#14141c' };
+function drawSprite(g, rows, x, yb, mirror, sc) {
+  rows.forEach((row, j) => {
+    for (let i = 0; i < row.length; i++) {
+      const ch = row[mirror ? row.length - 1 - i : i]; if (ch === '.') continue;
+      g.fillStyle = DCOL[ch]; g.fillRect(x + i * sc, yb - (rows.length - j) * sc, sc, sc);
+    }
+  });
+}
+function drawDance(ev) {
+  const g = fctx, t = ev.t;
+  g.globalAlpha = Math.min(1, Math.max(0, (t - 14) / 14));                       // 장면이 서서히 나타남
+  const sky = g.createLinearGradient(0, 0, 0, 160);
+  sky.addColorStop(0, '#0a0a3a'); sky.addColorStop(0.55, '#3a1a6e'); sky.addColorStop(1, '#b0386a');
+  g.fillStyle = sky; g.fillRect(0, 0, 80, 160);
+  g.fillStyle = '#fff';
+  ev.stars.forEach((s, i) => { if ((t + i * 7) % 40 < 30) g.fillRect(s.x, s.y * 0.45, 1, 1); });
+  [[13, 84, 14, '#241256'], [40, 72, 22, '#1b0e44'], [67, 86, 13, '#241256']].forEach((b) => {   // 둥근 지붕 실루엣
+    const cx = b[0], top = b[1], w = b[2];
+    g.fillStyle = b[3]; g.fillRect(cx - w / 2, top, w, 130 - top);
+    g.beginPath(); g.moveTo(cx - w / 2, top); g.quadraticCurveTo(cx - w * 0.7, top - w * 0.8, cx, top - w * 1.25);
+    g.quadraticCurveTo(cx + w * 0.7, top - w * 0.8, cx + w / 2, top); g.closePath(); g.fill();
+    g.fillStyle = '#ffd84a'; g.fillRect(cx - 0.5, top - w * 1.25 - 3, 1, 3);
+  });
+  g.fillStyle = '#2a1450'; g.fillRect(0, 128, 80, 32);                           // 무대 바닥
+  g.fillStyle = '#3d1f70'; for (let i = 0; i < 8; i++) g.fillRect(i * 10 + (Math.floor(t / 12) % 2) * 5, 134, 5, 3);
+  g.fillStyle = '#ffd84a'; g.fillRect(0, 128, 80, 1);
+  const n = ev.dancers, sc = n === 2 ? 3 : 2, xs = n === 2 ? [6, 41] : [3, 29, 55], seq = ['U', 'S', 'K', 'S'];
+  for (let i = 0; i < n; i++) {
+    const f = seq[(Math.floor(t / 12) + i) % 4], mirror = (i + Math.floor(t / 48)) % 2 === 1;
+    g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(xs[i] + 3, 130, 11 * sc - 6, 2);
+    drawSprite(g, DANCER[f], xs[i], 131 - (f === 'U' ? 5 : 0), mirror, sc);
+  }
+  ev.p.forEach((q) => { g.fillStyle = q.col; g.fillRect(q.x, q.y, q.s, q.s); });   // 색종이 / 불꽃
+  g.globalAlpha = 1;
 }
 function drawFx() {
   fctx.setTransform(1, 0, 0, 1, 0, 0); fctx.clearRect(0, 0, fcv.width, fcv.height);
   const k = fcv.width / 80; fctx.setTransform(k, 0, 0, k, 0, 0);
   const ev = G.event;
   if (ev) {
-    if (ev.type === 'rocket') drawRocket(ev);
-    else {
-      fctx.fillStyle = 'rgba(0,0,24,.55)'; fctx.fillRect(0, 0, 80, 160);
-      ev.p.forEach((q) => { fctx.fillStyle = q.col; fctx.fillRect(q.x, q.y, q.s, q.s); });
-    }
+    if (ev.type === 'rocket' && ev.t >= ev.rs) drawRocket(ev); else drawDance(ev);
   } else if (G.flash > 0 && Math.floor(G.flash / 4) % 2 === 0) {
     fctx.fillStyle = 'rgba(255,255,255,.38)'; fctx.fillRect(0, 0, 80, 160);
   }
   G.booms.forEach((b) => {                                   // 폭탄 폭발 이펙트
-    const k = b.t / 26, cx = b.x * 8 + 4, cy = b.y * 8 + 4;
-    fctx.globalAlpha = 1 - k;
-    fctx.fillStyle = '#fff6a0'; fctx.beginPath(); fctx.arc(cx, cy, 6 + k * 14, 0, 6.2832); fctx.fill();
-    fctx.fillStyle = '#ff7a18'; fctx.beginPath(); fctx.arc(cx, cy, 4 + k * 10, 0, 6.2832); fctx.fill();
+    const kk = b.t / 26, cx = b.x * 8 + 4, cy = b.y * 8 + 4;
+    fctx.globalAlpha = 1 - kk;
+    fctx.fillStyle = '#fff6a0'; fctx.beginPath(); fctx.arc(cx, cy, 8 + kk * 22, 0, 6.2832); fctx.fill();
+    fctx.fillStyle = '#ff7a18'; fctx.beginPath(); fctx.arc(cx, cy, 6 + kk * 16, 0, 6.2832); fctx.fill();
     fctx.globalAlpha = 1;
   });
 }
